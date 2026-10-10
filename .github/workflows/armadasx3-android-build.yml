@@ -44,6 +44,16 @@ jobs:
           # Full history: the version stamp counts commits.
           fetch-depth: 0
 
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      # Before the submodules on purpose: setup-gradle validates every gradle-wrapper.jar in the
+      # tree, and SDL's android-project ships one it does not recognise. We never run that jar;
+      # validating here still covers ours (android/armsx3-ui), which is the one we execute.
+      - uses: gradle/actions/setup-gradle@v4
+
       - name: Submodules and third-party checkouts
         run: |
           git submodule update --init --recursive --depth 1 --jobs 8
@@ -52,13 +62,6 @@ jobs:
           git clone https://github.com/bylaws/libadrenotools android/armsx3-ui/app/src/main/cpp/libadrenotools
           git -C android/armsx3-ui/app/src/main/cpp/libadrenotools checkout --quiet "$LIBADRENOTOOLS_COMMIT"
           git -C android/armsx3-ui/app/src/main/cpp/libadrenotools submodule update --init --recursive --depth 1
-
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '21'
-
-      - uses: gradle/actions/setup-gradle@v4
 
       - name: Android SDK, NDK and CMake
         run: |
@@ -69,7 +72,7 @@ jobs:
       - name: ccache
         run: |
           sudo apt-get update && sudo apt-get install -y ccache
-          ccache --max-size=8G
+          ccache --max-size=5G
 
       - uses: actions/cache@v4
         with:
@@ -126,11 +129,11 @@ jobs:
 
       - name: Unit tests
         working-directory: android/armsx3-ui
-        run: ./gradlew --no-daemon :app:testGithubDebugUnitTest
+        run: ./gradlew --no-daemon -Dorg.gradle.jvmargs=-Xmx6g :app:testGithubDebugUnitTest
 
       - name: APK (github flavor, release build type, debug-signed)
         working-directory: android/armsx3-ui
-        run: ./gradlew --no-daemon :app:assembleGithubRelease "-Parmsx3.minSdk=$API"
+        run: ./gradlew --no-daemon -Dorg.gradle.jvmargs=-Xmx6g :app:assembleGithubRelease "-Parmsx3.minSdk=$API"
 
       - name: Collect
         run: |
