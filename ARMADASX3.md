@@ -34,8 +34,8 @@ nem jogos.
 | # | Marco | Estado |
 |---|---|---|
 | 1 | Auditoria da base | Concluído (documentado) |
-| 2 | Build reproduzível (core + APK ARM64 a partir de clone limpo) | **Core e APK compilados** a partir de clone limpo em Linux (ambiente de desenvolvimento); falta rodar no CI |
-| 3 | CI confiável | Parcial: testes JVM do app no CI; workflow manual de build completo escrito, ainda não executado |
+| 2 | Build reproduzível (core + APK ARM64 a partir de clone limpo) | **Concluído**: core e APK compilam a partir de clone limpo em Linux, localmente e no GitHub Actions (execução 38052040154, commit `217363f5`) |
+| 3 | CI confiável | Testes JVM a cada push (verdes); build completo manual verde em cerca de 67 min (core 50 min). Falta: lint/formatação e acionamento automático do build completo |
 | 4 | Diagnóstico exportável | Implementado, com métricas de frame time e CPU por thread; testes JVM; **não validado em aparelho** |
 | 5 | Baseline no Odin 2 Portal | Não iniciado |
 | 6 | Correções direcionadas | Não iniciado |

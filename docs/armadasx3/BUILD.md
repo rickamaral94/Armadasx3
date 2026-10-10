@@ -92,4 +92,4 @@ verificado.
 | Core completo (`libarmsx3-core.so`, inclui o LLVM) | **OK** neste ambiente: 1,28 GB com símbolos, 99,6 MB sem; exporta os 4 símbolos `_armadasx3_*` |
 | APK (`assembleGithubRelease`, minSdk 33, assinado com a chave de debug) | **OK** neste ambiente: cerca de 77 MB, com `libarmsx3-core.so` e `libarmsx3-jni.so`; o R8 preserva os métodos JNI e os serializadores |
 | Carimbo de versão | Rode `android/stamp-git-version.sh` **antes** de compilar; sem isso o core informa o commit da última configuração do CMake |
-| Workflow de CI de build completo | Escrito; ainda não executado no GitHub Actions |
+| Workflow de CI de build completo | **Verde** no GitHub Actions: execução 38052040154 (commit `217363f5`), 67 min no total (core 50 min, APK 10 min); artefato `armadasx3-a13-<sha>` com o APK e o `SHA256SUMS`, guardado por 14 dias. A 1ª execução falhou porque a validação do wrapper do Gradle rejeitou o jar do submódulo SDL; corrigido validando antes de baixar os submódulos |
