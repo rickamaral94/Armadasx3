@@ -55,6 +55,7 @@ set(ARMSX3_INPUT_SOURCES
 
 add_library(rpcsx-android SHARED
     src/rpcsx-android.cpp
+    src/armadasx3_metrics.cpp
     # Reaches a user-picked folder through SAF on builds with no filesystem
     # permission, as an fs::device_base. See src/saf_device.h.
     src/saf_device.cpp

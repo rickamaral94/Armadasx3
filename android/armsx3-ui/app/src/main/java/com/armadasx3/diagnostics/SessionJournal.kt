@@ -27,6 +27,8 @@ class SessionJournal(
     private val dir: File,
     private val clock: Clock = Clock.System,
     private val maxEventBytes: Long = 256L * 1024L,
+    private val maxFrameBytes: Long = 16L * 1024L * 1024L,
+    private val maxMetricBytes: Long = 4L * 1024L * 1024L,
 ) {
     interface Clock {
         fun elapsedMs(): Long
@@ -50,6 +52,9 @@ class SessionJournal(
         val driver: DriverInfo? = null,
         val settings: SettingsSnapshot? = null,
         @SerialName("events_dropped") val eventsDropped: Long = 0,
+        /** Frame intervals not stored because the per-session cap was reached. */
+        @SerialName("frames_not_stored") val framesNotStored: Long = 0,
+        @SerialName("metric_samples_not_stored") val metricSamplesNotStored: Long = 0,
     )
 
     /** A finished session as read back from disk. */
@@ -70,6 +75,10 @@ class SessionJournal(
     private var startElapsed = 0L
     private var eventBytes = 0L
     private var dropped = 0L
+    private var frameBytes = 0L
+    private var framesNotStored = 0L
+    private var metricBytes = 0L
+    private var metricsNotStored = 0L
     private var state: State? = null
 
     @Synchronized
@@ -90,6 +99,10 @@ class SessionJournal(
         startElapsed = clock.elapsedMs()
         eventBytes = 0L
         dropped = 0L
+        frameBytes = 0L
+        framesNotStored = 0L
+        metricBytes = 0L
+        metricsNotStored = 0L
         state = State(
             id = id,
             startedAtUtc = clock.utcNow(),
@@ -129,6 +142,42 @@ class SessionJournal(
         eventBytes += bytes.size
     }
 
+    /**
+     * Appends [count] guest frame intervals (microseconds, unsigned) to frame_intervals.u32le as
+     * little-endian u32. Past the per-session cap they are counted, not stored.
+     */
+    @Synchronized
+    fun appendFrames(intervalsUs: IntArray, count: Int) = guard {
+        if (state == null || count <= 0) return@guard
+        val room = ((maxFrameBytes - frameBytes) / 4).coerceAtLeast(0).toInt()
+        val n = minOf(count, room)
+        framesNotStored += count - n
+        if (n == 0) return@guard
+        val bytes = ByteArray(n * 4)
+        for (i in 0 until n) {
+            val v = intervalsUs[i]
+            bytes[i * 4] = v.toByte()
+            bytes[i * 4 + 1] = (v ushr 8).toByte()
+            bytes[i * 4 + 2] = (v ushr 16).toByte()
+            bytes[i * 4 + 3] = (v ushr 24).toByte()
+        }
+        FileOutputStream(File(currentDir, FRAMES_FILE), true).use { it.write(bytes) }
+        frameBytes += bytes.size
+    }
+
+    /** Appends one JSON line to metrics.jsonl, within the per-session cap. */
+    @Synchronized
+    fun appendMetric(jsonLine: String) = guard {
+        if (state == null) return@guard
+        val bytes = (jsonLine.trimEnd() + "\n").toByteArray(Charsets.UTF_8)
+        if (metricBytes + bytes.size > maxMetricBytes) {
+            metricsNotStored++
+            return@guard
+        }
+        FileOutputStream(File(currentDir, METRICS_FILE), true).use { it.write(bytes) }
+        metricBytes += bytes.size
+    }
+
     /** The session returned to the library. [endState] is [END_CLEAN] unless the caller knows better. */
     @Synchronized
     fun end(endState: String = END_CLEAN) = guard {
@@ -139,6 +188,8 @@ class SessionJournal(
             endState = endState,
             durationMs = clock.elapsedMs() - startElapsed,
             eventsDropped = dropped,
+            framesNotStored = framesNotStored,
+            metricSamplesNotStored = metricsNotStored,
         )
         writeState(currentDir, finished)
         state = null
@@ -234,6 +285,9 @@ class SessionJournal(
         const val INTERRUPTED = "interrupted"
         const val STATE_FILE = "state.json"
         const val EVENTS_FILE = "events.jsonl"
+        /** Guest frame intervals, little-endian u32 microseconds, one per guest flip. */
+        const val FRAMES_FILE = "frame_intervals.u32le"
+        const val METRICS_FILE = "metrics.jsonl"
 
         private val JSON = Json { ignoreUnknownKeys = true; encodeDefaults = true }
     }

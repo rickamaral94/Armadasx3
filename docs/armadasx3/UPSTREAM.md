@@ -39,9 +39,17 @@ Toda mudança em arquivo herdado entra aqui, com o motivo. Código novo fica em
 | `.../com/armsx2/runtime/MainActivityRuntime.kt` | +4 linhas de ganchos (`onGameStarted`, `onGameIdentified`, `onDriverPinned`, `onReturnedToLibrary`) | Journal da sessão |
 | `.../com/armsx2/ui/settings/AppTab.kt` | +3 linhas: linha "Exportar diagnóstico da sessão" abaixo de Backup | Acesso fácil ao diagnóstico |
 | `.../com/armsx2/i18n/I18n.kt`, `assets/i18n/pt-BR.json` | Chaves `diag.*` (inglês + pt-BR) | Textos da exportação |
+| `android/src/rpcsx-android.cpp` | +1 include, +1 linha em `flip()`: `armadasx3::metrics::on_guest_flip(now)` | Intervalos de frame e CPU por thread para o diagnóstico |
+| `android/CMakeLists.txt` | +1 fonte: `src/armadasx3_metrics.cpp` | Idem |
+| `android/armsx3-ui/app/src/main/cpp/native-lib.cpp` | +4 ponteiros opcionais resolvidos por `dlsym` e +5 funções JNI `Java_com_armadasx3_diagnostics_CoreMetrics_*` | Ponte das métricas; um core antigo deixa os ponteiros nulos |
+| `android/armsx3-ui/app/src/main/cpp/CMakeLists.txt` | Alvo `armsx2_discord` só existe se `libdiscord_partner_sdk.so` estiver presente | Compilar sem o SDK proprietário |
+| `.../cpp/savers/skyrocket/shockwave.cpp` | `<gl/gl.h>` → `<GL/gl.h>` | Só compilava em sistema de arquivos sem distinção de maiúsculas (macOS) |
 
-Fora do código herdado: `.github/workflows/armadasx3-android-unit-tests.yml`, `ARMADASX3.md` e
-`docs/armadasx3/`.
+Fora do código herdado: `android/src/armadasx3_metrics.{h,cpp}`,
+`.github/workflows/armadasx3-android-{unit-tests,build}.yml`, `ARMADASX3.md` e `docs/armadasx3/`.
+
+Candidatas a enviar ao ARMSX3 como PR (corrigem o build fora do macOS e sem o SDK do Discord):
+as mudanças em `build.gradle.kts`, `cpp/CMakeLists.txt` e `shockwave.cpp`.
 
 ## Histórico de sincronizações
 

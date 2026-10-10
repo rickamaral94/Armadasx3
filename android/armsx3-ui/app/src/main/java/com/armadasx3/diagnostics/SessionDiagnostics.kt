@@ -43,6 +43,7 @@ object SessionDiagnostics {
     @Volatile private var app: Application? = null
     @Volatile private var thermalListener: PowerManager.OnThermalStatusChangedListener? = null
     @Volatile private var sessionActive = false
+    @Volatile private var sampler: MetricsSampler? = null
 
     fun diagnosticsDir(context: Context): File =
         File(context.getExternalFilesDir(null) ?: context.filesDir, "diagnostics")
@@ -52,6 +53,7 @@ object SessionDiagnostics {
             app = application
             val j = SessionJournal(diagnosticsDir(application))
             journal = j
+            sampler = MetricsSampler(application, j)
             io.execute { j.recoverInterrupted() }
             application.registerComponentCallbacks(object : ComponentCallbacks2 {
                 override fun onTrimMemory(level: Int) {
@@ -91,6 +93,7 @@ object SessionDiagnostics {
                 j.begin(UUID.randomUUID().toString(), uptimeS, game, null, settings)
                 j.event("memory_at_start", memoryLine(ctx))
                 thermalStatus(ctx)?.let { j.event("thermal_status", it) }
+                sampler?.start()
             }
             watchThermal(ctx)
         }
@@ -151,6 +154,7 @@ object SessionDiagnostics {
             unwatchThermal()
             val ctx = app
             io.execute {
+                sampler?.stop()
                 if (ctx != null) j.event("memory_at_end", memoryLine(ctx))
                 j.end()
             }
@@ -186,15 +190,23 @@ object SessionDiagnostics {
         val serial = record?.state?.game?.serial
         val entries = ArrayList<BundleEntry>()
 
-        fun file(zipPath: String, category: String, f: File?, selected: Boolean = true, optional: Boolean = true, digest: Boolean = false) {
+        fun file(
+            zipPath: String, category: String, f: File?, selected: Boolean = true, optional: Boolean = true,
+            digest: Boolean = false, isText: Boolean = true,
+        ) {
             if (f != null && f.isFile && f.length() > 0) {
-                entries += BundleEntry(zipPath, category, BundleEntry.Source.FromFile(f), optional = optional, selectedByDefault = selected, digest = digest)
+                entries += BundleEntry(
+                    zipPath, category, BundleEntry.Source.FromFile(f), isText = isText,
+                    optional = optional, selectedByDefault = selected, digest = digest,
+                )
             }
         }
 
         record?.folder?.let { folder ->
             file("session/state.json", "session_journal", File(folder, SessionJournal.STATE_FILE), optional = false)
             file("session/events.jsonl", "session_journal", File(folder, SessionJournal.EVENTS_FILE), optional = false)
+            file("session/metrics.jsonl", "session_metrics", File(folder, SessionJournal.METRICS_FILE))
+            file("session/frame_intervals.u32le", "session_metrics", File(folder, SessionJournal.FRAMES_FILE), isText = false)
         }
         if (root != null) {
             val cache = File(root, "cache")
@@ -233,7 +245,12 @@ object SessionDiagnostics {
             ),
         )
         val chosen = plan.entries.filter { !it.optional || it.zipPath in selected }
-        val unavailableBase = baseUnavailable(plan) +
+        // Computed from the journal on disk, whether or not the raw files go into the zip.
+        val sessionMetrics = SessionMetrics.fromFolder(plan.record?.folder)
+        val notStored = plan.record?.state?.framesNotStored?.takeIf { it > 0 }?.let {
+            Metric("session.frames_not_stored", it.toDouble(), "frames", "session journal", "intervals past the 16 MB per-session cap; summaries cover the stored ones")
+        }
+        val unavailableBase = baseUnavailable(plan) + sessionMetrics.unavailable +
             plan.entries.filter { it.optional && it.zipPath !in selected }
                 .map { Unavailable(it.zipPath, "deselected by the user") }
 
@@ -252,7 +269,7 @@ object SessionDiagnostics {
                     observations = notes.observations?.trim()?.takeIf { it.isNotEmpty() }?.let(redactor::redact),
                 ),
                 logDigest = result.digests,
-                metrics = exportTimeMetrics(context),
+                metrics = sessionMetrics.metrics + listOfNotNull(notStored) + exportTimeMetrics(context),
                 files = result.files,
                 unavailable = unavailableBase + result.excluded,
             )
@@ -263,13 +280,11 @@ object SessionDiagnostics {
 
     private fun baseUnavailable(plan: Plan): List<Unavailable> = buildList {
         if (plan.record == null) add(Unavailable("session", "no game session has been recorded since diagnostics were added"))
-        add(Unavailable("fps_and_frame_time", "not instrumented in this build; the core does not yet export frame statistics"))
-        add(Unavailable("ppu_spu_rsx_thread_times", "not instrumented in this build"))
         add(Unavailable("shader_pipeline_compile_stats", "not instrumented in this build; see compile lines in ARMSX3.log"))
         add(Unavailable("vulkan_queue_fence_stats", "not instrumented in this build"))
         add(Unavailable("vulkan_validation_messages", "validation layers are not shipped; driver messages reach ARMSX3.log only when the core logs them"))
         add(Unavailable("logcat", "needs READ_LOGS, which an app can only get through ADB; not collected"))
-        add(Unavailable("temperature_celsius_and_clocks", "no unprivileged API on Android; thermal status (PowerManager) is recorded instead"))
+        add(Unavailable("cpu_gpu_clocks", "no unprivileged API on Android; not collected"))
         add(Unavailable("game.version", "not read from PARAM.SFO yet"))
         add(Unavailable("screenshots", "not offered by this version of the export"))
     }

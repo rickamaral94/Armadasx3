@@ -55,9 +55,11 @@ e permite fazer `git merge` direto do ARMSX3 e do RPCS3, sem reaplicar patches �
   própria licença. **A compatibilidade de cada um com a GPL-2.0-only ainda não foi auditada uma a
   uma.** Isso fica pendente para antes do primeiro APK público.
 - **Fora do repositório**, obtidos à parte:
-  - `librashader` (clonado em `3rdparty/librashader`): MPL-2.0 / GPL-3.0. **Atenção:** se a
-    distribuição usar a opção GPL-3.0, ela é incompatível com GPL-2.0-only. Resolver antes de
-    publicar.
+  - `librashader` (clonado em `3rdparty/librashader`): licença dupla MPL-2.0 / GPL-3.0. O core
+    usa **só os cabeçalhos** (`librashader_ld.h`, um loader permissivo) e abre `librashader.so`
+    com `dlopen` em runtime; nada licenciado sob MPL é ligado ao core (veja
+    `upscalers/librashader_pass.h`). Se um APK distribuir `librashader.so`, ele deve ir sob a
+    opção MPL-2.0, com o aviso correspondente. Esse uso ainda não foi verificado no APK.
   - `libadrenotools` (clonado em `android/armsx3-ui/app/src/main/cpp/libadrenotools`):
     BSD-2-Clause.
   - Discord Social SDK: proprietário e **não** redistribuído. O build funciona sem ele.
@@ -152,7 +154,8 @@ Android do aparelho for 15+.
 
 Variantes do app (flavors): `github` (com atualizador e frame generation) e `play`.
 
-**Estado do Marco 2 (build reproduzível): ainda não validado.**
+**Estado do Marco 2 (build reproduzível):** procedimento e problemas encontrados em `BUILD.md`.
+O texto abaixo era o estado na primeira auditoria.
 
 - Nesta sessão rodaram a configuração do Gradle e os testes unitários JVM do app (veja o
   relatório da tarefa).

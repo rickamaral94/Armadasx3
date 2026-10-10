@@ -160,7 +160,9 @@ target_link_libraries(savers log GLESv2 m)
 # here as an IMPORTED target so the bridge links, and the .aar is what actually
 # packages it.
 # ---------------------------------------------------------------------------
-if (CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64")
+# Armadasx3: built only when the proprietary SDK has been staged. A clean clone and CI do not have
+# it; DiscordNative.ensureLoaded already treats a missing libarmsx2_discord.so as "no Discord".
+if (CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64" AND EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/discord_sdk/arm64-v8a/libdiscord_partner_sdk.so)
     add_library(discord_partner_sdk SHARED IMPORTED)
     set_target_properties(discord_partner_sdk PROPERTIES
         IMPORTED_LOCATION ${CMAKE_CURRENT_SOURCE_DIR}/discord_sdk/arm64-v8a/libdiscord_partner_sdk.so)

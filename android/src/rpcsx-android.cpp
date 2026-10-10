@@ -24,6 +24,7 @@
 #include "Emu/RSX/Null/NullGSRender.h"
 #include "Emu/RSX/Overlays/overlay_manager.h"
 #include "Emu/RSX/Overlays/overlay_perf_metrics.h"
+#include "armadasx3_metrics.h"
 #include "Emu/RSX/Overlays/overlay_save_dialog.h"
 #include "Emu/RSX/Overlays/overlay_trophy_notification.h"
 #include "Emu/RSX/Overlays/overlay_utils.h"
@@ -558,6 +559,7 @@ struct GraphicsFrame : GSFrameBase {
     {
       const u64 now = get_system_time();
 
+      armadasx3::metrics::on_guest_flip(now);
       m_frames_since_log++;
 
       if (!m_fps_window_start) {

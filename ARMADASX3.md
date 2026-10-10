@@ -23,6 +23,8 @@ Nenhum resultado de compatibilidade ou desempenho é afirmado sem teste. Veja a 
 | [`docs/armadasx3/DIAGNOSTICO.md`](docs/armadasx3/DIAGNOSTICO.md) | "Exportar diagnóstico da sessão" e esquema do `report.json` |
 | [`docs/armadasx3/COMPATIBILIDADE.md`](docs/armadasx3/COMPATIBILIDADE.md) | Estados, protocolo de teste e matriz por jogo |
 | [`docs/armadasx3/UPSTREAM.md`](docs/armadasx3/UPSTREAM.md) | Sincronização com ARMSX3/RPCS3 e lista de divergências locais |
+| [`docs/armadasx3/BUILD.md`](docs/armadasx3/BUILD.md) | Build reproduzível em Linux (versões fixadas, passo a passo) |
+| [`docs/armadasx3/VALIDACAO-ODIN2.md`](docs/armadasx3/VALIDACAO-ODIN2.md) | Roteiro de validação no aparelho |
 
 Para compilar, siga o `README.md` (instruções do ARMSX3). O app não inclui firmware, BIOS, chaves
 nem jogos.
@@ -33,8 +35,8 @@ nem jogos.
 |---|---|---|
 | 1 | Auditoria da base | Concluído (documentado) |
 | 2 | Build reproduzível (core + APK ARM64 a partir de clone limpo) | Pendente: o core ainda não foi compilado por este projeto |
-| 3 | CI confiável | Parcial: testes JVM do app no CI; build do core/APK pendente |
-| 4 | Diagnóstico exportável | Implementado com testes JVM; **não validado em aparelho** |
+| 3 | CI confiável | Parcial: testes JVM do app no CI; workflow manual de build completo escrito, ainda não executado |
+| 4 | Diagnóstico exportável | Implementado, com métricas de frame time e CPU por thread; testes JVM; **não validado em aparelho** |
 | 5 | Baseline no Odin 2 Portal | Não iniciado |
 | 6 | Correções direcionadas | Não iniciado |
 | 7 | Acompanhamento do upstream | Rotina documentada; primeira sincronização = importação |

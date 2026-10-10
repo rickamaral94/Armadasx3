@@ -50,6 +50,11 @@ struct RPCSXApi {
   void (*setPadSensor)(int port, int x, int y, int z, int g);
   int (*getPadRumble)(int port);
   void (*setThermals)(float cpu, float gpu, float battery, bool show);
+  // Armadasx3 session metrics (android/src/armadasx3_metrics.cpp). Optional: null on an older core.
+  int (*armadasx3TakeFrameIntervals)(unsigned int *out, int max);
+  unsigned long long (*armadasx3GetFrameDrops)();
+  void (*armadasx3ResetFrameIntervals)();
+  void (*armadasx3GetThreadCpu)(unsigned long long *out);
   void (*setRenderPosition)(bool portraitTop, int topInset);
   void (*setPadDeviceClasses)(const int *classes, int count);
   bool (*usbDeviceEvent)(int fd, int vendorId, int productId, int event);
@@ -184,6 +189,11 @@ struct RPCSXLibrary : RPCSXApi {
     result.setPadSensor = reinterpret_cast<decltype(setPadSensor)>(dlsym(handle, "_rpcsx_setPadSensor"));
     result.getPadRumble = reinterpret_cast<decltype(getPadRumble)>(dlsym(handle, "_rpcsx_getPadRumble"));
     result.setThermals = reinterpret_cast<decltype(setThermals)>(dlsym(handle, "_rpcsx_setThermals"));
+    // Optional: a core without Armadasx3 metrics leaves these null and the export says so.
+    result.armadasx3TakeFrameIntervals = reinterpret_cast<decltype(armadasx3TakeFrameIntervals)>(dlsym(handle, "_armadasx3_takeFrameIntervals"));
+    result.armadasx3GetFrameDrops = reinterpret_cast<decltype(armadasx3GetFrameDrops)>(dlsym(handle, "_armadasx3_getFrameDrops"));
+    result.armadasx3ResetFrameIntervals = reinterpret_cast<decltype(armadasx3ResetFrameIntervals)>(dlsym(handle, "_armadasx3_resetFrameIntervals"));
+    result.armadasx3GetThreadCpu = reinterpret_cast<decltype(armadasx3GetThreadCpu)>(dlsym(handle, "_armadasx3_getThreadCpu"));
     // Optional: a core built before this simply centres the image, as it always did.
     result.setRenderPosition = reinterpret_cast<decltype(setRenderPosition)>(dlsym(handle, "_rpcsx_setRenderPosition"));
     // Optional: a core without it reports every port as a standard pad, as it always did.
@@ -584,6 +594,60 @@ extern "C" JNIEXPORT void JNICALL Java_net_rpcsx_RPCSX_setThermals(
   }
 
   rpcsxLib.setThermals(cpu, gpu, battery, show == JNI_TRUE);
+}
+
+// Armadasx3 session metrics, read by com.armadasx3.diagnostics.CoreMetrics. Each returns a
+// "not available" value when the loaded core does not export the metric.
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_armadasx3_diagnostics_CoreMetrics_nativeAvailable(JNIEnv *, jobject) {
+  return rpcsxLib.armadasx3TakeFrameIntervals != nullptr && rpcsxLib.armadasx3GetThreadCpu != nullptr
+             ? JNI_TRUE
+             : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_com_armadasx3_diagnostics_CoreMetrics_nativeTakeFrameIntervals(JNIEnv *env, jobject, jintArray out) {
+  if (rpcsxLib.armadasx3TakeFrameIntervals == nullptr || out == nullptr) {
+    return -1;
+  }
+  const jsize len = env->GetArrayLength(out);
+  jint *data = env->GetIntArrayElements(out, nullptr);
+  if (data == nullptr) {
+    return -1;
+  }
+  const int n = rpcsxLib.armadasx3TakeFrameIntervals(reinterpret_cast<unsigned int *>(data), len);
+  env->ReleaseIntArrayElements(out, data, 0);
+  return n;
+}
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_com_armadasx3_diagnostics_CoreMetrics_nativeFrameDrops(JNIEnv *, jobject) {
+  if (rpcsxLib.armadasx3GetFrameDrops == nullptr) {
+    return -1;
+  }
+  return static_cast<jlong>(rpcsxLib.armadasx3GetFrameDrops());
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_armadasx3_diagnostics_CoreMetrics_nativeResetFrameIntervals(JNIEnv *, jobject) {
+  if (rpcsxLib.armadasx3ResetFrameIntervals != nullptr) {
+    rpcsxLib.armadasx3ResetFrameIntervals();
+  }
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_armadasx3_diagnostics_CoreMetrics_nativeThreadCpu(JNIEnv *env, jobject, jlongArray out) {
+  if (rpcsxLib.armadasx3GetThreadCpu == nullptr || out == nullptr || env->GetArrayLength(out) < 6) {
+    return JNI_FALSE;
+  }
+  unsigned long long values[6] = {};
+  rpcsxLib.armadasx3GetThreadCpu(values);
+  jlong copy[6];
+  for (int i = 0; i < 6; i++) {
+    copy[i] = static_cast<jlong>(values[i]);
+  }
+  env->SetLongArrayRegion(out, 0, 6, copy);
+  return JNI_TRUE;
 }
 
 extern "C" JNIEXPORT void JNICALL Java_net_rpcsx_RPCSX_setRenderPosition(

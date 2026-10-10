@@ -1,0 +1,147 @@
+name: Armadasx3 Android build (core + APK)
+
+# Full build from a clean clone: the RPCS3 core with LLVM (libarmsx3-core.so) and the app.
+# Manual only: LLVM is built from source and a cold build takes hours. ccache keeps later runs
+# shorter. The APK is signed with the debug key; it is a test build, not a release.
+
+on:
+  workflow_dispatch:
+    inputs:
+      variant:
+        description: 'Core variant (a13 = Odin 2 Portal on Android 13/14; a15 = Android 15+)'
+        required: true
+        default: a13
+        type: choice
+        options: [a13, a15]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.variant }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  NDK_VERSION: 29.0.14206865
+  CMAKE_VERSION: 3.30.5
+  # Pinned so the build is reproducible; bump deliberately. See docs/armadasx3/BUILD.md.
+  LIBRASHADER_COMMIT: 87e8a97b50516d997defeaa168173dcd185d4022
+  LIBADRENOTOOLS_COMMIT: 8fae8ce254dfc1344527e05301e43f37dea2df80
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost /usr/local/.ghcup \
+            /usr/share/swift /usr/local/lib/node_modules /opt/hostedtoolcache/CodeQL || true
+          df -h /
+
+      - uses: actions/checkout@v4
+        with:
+          # Full history: the version stamp counts commits.
+          fetch-depth: 0
+
+      - name: Submodules and third-party checkouts
+        run: |
+          git submodule update --init --recursive --depth 1 --jobs 8
+          git clone https://github.com/SnowflakePowered/librashader 3rdparty/librashader
+          git -C 3rdparty/librashader checkout --quiet "$LIBRASHADER_COMMIT"
+          git clone https://github.com/bylaws/libadrenotools android/armsx3-ui/app/src/main/cpp/libadrenotools
+          git -C android/armsx3-ui/app/src/main/cpp/libadrenotools checkout --quiet "$LIBADRENOTOOLS_COMMIT"
+          git -C android/armsx3-ui/app/src/main/cpp/libadrenotools submodule update --init --recursive --depth 1
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Android SDK, NDK and CMake
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+            "ndk;$NDK_VERSION" "cmake;$CMAKE_VERSION" "platforms;android-37.0" "build-tools;37.0.0"
+
+      - name: ccache
+        run: |
+          sudo apt-get update && sudo apt-get install -y ccache
+          ccache --max-size=8G
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: ccache-${{ inputs.variant }}-${{ github.sha }}
+          restore-keys: ccache-${{ inputs.variant }}-
+
+      - name: Configure core
+        run: |
+          case "${{ inputs.variant }}" in
+            a13) API=33 ;;
+            a15) API=35 ;;
+          esac
+          echo "API=$API" >> "$GITHUB_ENV"
+          bash android/stamp-git-version.sh
+          NDK_VERSION="$NDK_VERSION" ANDROID_API="$API" BUILD_DIR="$PWD/build-core" \
+            bash android/configure.sh \
+              -DARMSX3_ARM_MARCH=armv8.2-a+dotprod+fp16 \
+              -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+
+      - name: Build core
+        run: |
+          PATH="$ANDROID_HOME/cmake/$CMAKE_VERSION/bin:$PATH" \
+            ninja -C build-core -j"$(nproc)" android/libarmsx3-core.so
+          # Frame generation (armsx3_lsfg) is only defined when 3rdparty/lsfg/lsfg-vk-android is
+          # present, which it is not in this repository; build it when it is.
+          if grep -q 'build armsx3_lsfg' build-core/build.ninja; then
+            PATH="$ANDROID_HOME/cmake/$CMAKE_VERSION/bin:$PATH" ninja -C build-core armsx3_lsfg
+          fi
+          ccache --show-stats
+
+      - name: Strip and stage native libraries
+        run: |
+          BIN="$ANDROID_HOME/ndk/$NDK_VERSION/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          "$BIN/llvm-strip" --strip-unneeded \
+            -o android/armsx3-ui/app/src/main/jniLibs/arm64-v8a/libarmsx3-core.so \
+            build-core/android/libarmsx3-core.so
+          if [ -f build-core/3rdparty/lsfg/libarmsx3_lsfg.so ]; then
+            mkdir -p android/armsx3-ui/app/src/github/jniLibs/arm64-v8a
+            "$BIN/llvm-strip" --strip-unneeded \
+              -o android/armsx3-ui/app/src/github/jniLibs/arm64-v8a/libarmsx3_lsfg.so \
+              build-core/3rdparty/lsfg/libarmsx3_lsfg.so
+            # Same isolation check as android/build-variants.sh: no Vulkan/LSFG symbol may leak.
+            leaked=$("$BIN/llvm-nm" -D --defined-only \
+              android/armsx3-ui/app/src/github/jniLibs/arm64-v8a/libarmsx3_lsfg.so | grep -cE "vk[A-Z]|LSFG" || true)
+            if [ "$leaked" != "0" ]; then echo "libarmsx3_lsfg.so leaks $leaked symbols"; exit 1; fi
+          fi
+          # The diagnostics bridge needs these; fail loudly if the core lost them.
+          for s in _armadasx3_takeFrameIntervals _armadasx3_getThreadCpu _armadasx3_resetFrameIntervals _armadasx3_getFrameDrops; do
+            "$BIN/llvm-nm" -D --defined-only android/armsx3-ui/app/src/main/jniLibs/arm64-v8a/libarmsx3-core.so | grep -q " $s$" \
+              || { echo "core does not export $s"; exit 1; }
+          done
+          ls -la android/armsx3-ui/app/src/main/jniLibs/arm64-v8a/
+
+      - name: Unit tests
+        working-directory: android/armsx3-ui
+        run: ./gradlew --no-daemon :app:testGithubDebugUnitTest
+
+      - name: APK (github flavor, release build type, debug-signed)
+        working-directory: android/armsx3-ui
+        run: ./gradlew --no-daemon :app:assembleGithubRelease "-Parmsx3.minSdk=$API"
+
+      - name: Collect
+        run: |
+          mkdir -p out
+          V=$(sed -n 's/.*versionName = "\([^"]*\)".*/\1/p' android/armsx3-ui/app/build.gradle.kts | head -1)
+          cp android/armsx3-ui/app/build/outputs/apk/github/release/app-github-release.apk \
+            "out/Armadasx3-$V-${{ inputs.variant }}-${GITHUB_SHA::8}.apk"
+          sha256sum out/*.apk | tee out/SHA256SUMS
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: armadasx3-${{ inputs.variant }}-${{ github.sha }}
+          path: out/
+          retention-days: 14
