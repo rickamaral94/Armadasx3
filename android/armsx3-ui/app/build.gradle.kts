@@ -277,7 +277,20 @@ dependencies {
     // without this the :discord process aborts with ClassNotFoundException even
     // though the .so links fine. proguard-rules.pro keeps them from being
     // renamed for the same reason.
-    implementation(files("libs/discord_partner_sdk.aar"))
+    //
+    // Armadasx3: only when the .aar is actually present. The SDK is not redistributable, so a
+    // clean clone (and CI) does not have it, and an unconditional dependency failed every build
+    // there. Kotlin only reaches the SDK by reflection, which already copes with it being absent.
+    val discordSdk = listOfNotNull(
+        file("libs/discord_partner_sdk.aar"),
+        (System.getenv("DISCORD_SDK_DIR") ?: findProperty("DISCORD_SDK_DIR") as String?)
+            ?.let { File(it, "discord_partner_sdk.aar") },
+    ).firstOrNull { it.isFile }
+    if (discordSdk != null) {
+        implementation(files(discordSdk))
+    } else {
+        logger.lifecycle("Discord Social SDK not found; building without the Discord feature.")
+    }
 
     implementation(libs.androidx.browser)
 

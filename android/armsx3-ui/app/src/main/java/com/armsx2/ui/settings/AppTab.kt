@@ -610,6 +610,9 @@ fun AppTab() {
         }
 
         BackupRestoreRows()
+        com.armadasx3.diagnostics.DiagnosticsExportRow { labelKey, descKey, status, busy, onClick ->
+            BackupActionRow("🩺", labelKey, descKey, status, busy, onClick)
+        }
 
         ToggleRow(
             label = str("app.blockHome"),

@@ -559,6 +559,7 @@ open class MainActivityRuntime : ComponentActivity() {
          *  the block was skipped and the surviving path never reverted anything: the launcher
          *  stayed locked in the game's landscape until the process was killed. Idempotent. */
         private fun onReturnedToLibrary() {
+            com.armadasx3.diagnostics.SessionDiagnostics.onReturnedToLibrary()
             currentGame.value = null
             emulationOwnsOrientation = false
             // Never leave the device pinned once the game is gone (#425).
@@ -942,6 +943,7 @@ open class MainActivityRuntime : ComponentActivity() {
             // Turnip options go into the environment before the device is created.
             com.armsx2.CustomDriver.applyDriverEnv()
             if (ctx != null) com.armsx2.CustomDriver.applyToNative(ctx, picked)
+            com.armadasx3.diagnostics.SessionDiagnostics.onDriverPinned(picked)
             when (renderer.value) {
                 "vulkan" -> NativeApp.renderVulkan()
                 "opengl" -> NativeApp.renderOpenGL()
@@ -1058,6 +1060,7 @@ open class MainActivityRuntime : ComponentActivity() {
                 return
             }
             currentGame.value = info
+            com.armadasx3.diagnostics.SessionDiagnostics.onGameStarted(info)
             launchedExternally = external
             m_szGamefile = uri
             synchronized(vmLifecycleLock) {
@@ -1706,6 +1709,7 @@ open class MainActivityRuntime : ComponentActivity() {
                         extension = if (folder) "FOLDER" else name.substringAfterLast('.', "").uppercase(),
                         platform = com.armsx2.GamePlatform.PS3,
                     )
+                    com.armadasx3.diagnostics.SessionDiagnostics.onGameIdentified(currentGame.value)
                 }
             })
         }

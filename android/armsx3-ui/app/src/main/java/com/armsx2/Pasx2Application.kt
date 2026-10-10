@@ -33,6 +33,7 @@ class Pasx2Application : Application(), ImageLoaderFactory {
 		super.onCreate()
 		appContext = applicationContext
 		installCrashLogging()
+		com.armadasx3.diagnostics.SessionDiagnostics.init(this)
 	}
 
 	companion object {
