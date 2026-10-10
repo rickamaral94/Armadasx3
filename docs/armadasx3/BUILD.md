@@ -61,7 +61,15 @@ Problemas encontrados ao compilar a base num Linux limpo, todos corrigidos com m
    da biblioteca.
 3. `savers/skyrocket/shockwave.cpp` incluía `<gl/gl.h>`, que só resolve em sistema de arquivos
    sem distinção de maiúsculas (macOS). Corrigido para `<GL/gl.h>`.
-4. `android/build-variants.sh` usa ferramentas do NDK em `prebuilt/darwin-x86_64`. Não foi
+4. `rpcs3/Emu/RSX/VK/vkutils/sync.cpp` incluía `"Emu/system.h"`; o arquivo é `Emu/System.h`.
+   Mesmo problema de maiúsculas. O erro veio do commit `36c4820b8` do ARMSX3 e não existe no
+   RPCS3. Corrigido.
+5. `rpcs3/Emu/RSX/VK/FrameGen/FrameGenTypes.h` tinha um `#include "Config.h"` que não existe na
+   árvore. No macOS ele resolvia, sem distinção de maiúsculas, para o `config.h` gerado pelo
+   wolfSSL (só macros de sistema, nenhuma usada pelo FrameGen); no Linux quebrava o build. A linha
+   foi removida. Os 32 arquivos de FrameGen são GPL-2.0-or-later (relicenciados pelo autor), então
+   compatíveis com o core; o comentário em `FrameGenTypes.h` que fala em GPL-3.0 está desatualizado.
+6. `android/build-variants.sh` usa ferramentas do NDK em `prebuilt/darwin-x86_64`. Não foi
    alterado; o workflow e o passo a passo acima usam `linux-x86_64` diretamente.
 
 Frame generation (`armsx3_lsfg`) **não** é compilada: o código de `3rdparty/lsfg/lsfg-vk-android`
@@ -75,6 +83,6 @@ não está no repositório. Sem a biblioteca, o core desliga o recurso.
 | Módulo de métricas `armadasx3_metrics.cpp` compilado isoladamente (arm64) | **OK** |
 | Glue JNI do app (`libarmsx3-jni.so`, com a ponte de métricas) via Gradle | **OK** |
 | Testes JVM do app | **OK** |
-| Core completo (`libarmsx3-core.so`, inclui o LLVM) | Ver o relatório da tarefa |
+| Core completo (`libarmsx3-core.so`, inclui o LLVM) | **OK** neste ambiente: 1,28 GB com símbolos, 99,6 MB sem; exporta os 4 símbolos `_armadasx3_*` |
 | APK | Ver o relatório da tarefa |
 | Workflow de CI de build completo | Escrito; ainda não executado no GitHub Actions |

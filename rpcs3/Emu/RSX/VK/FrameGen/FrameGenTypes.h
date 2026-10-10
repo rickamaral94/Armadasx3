@@ -23,7 +23,9 @@
 
 #include "util/types.hpp"
 #include "FrameGenConfig.h"
-#include "Config.h"
+// Armadasx3: a stray #include "Config.h" stood here. No such file exists in the tree; on macOS
+// it resolved case-insensitively to wolfSSL's generated config.h (unused here), and on Linux it
+// broke the build.
 
 #include <algorithm>
 #include <cstddef>
