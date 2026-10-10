@@ -72,8 +72,14 @@ Problemas encontrados ao compilar a base num Linux limpo, todos corrigidos com m
 6. `android/build-variants.sh` usa ferramentas do NDK em `prebuilt/darwin-x86_64`. Não foi
    alterado; o workflow e o passo a passo acima usam `linux-x86_64` diretamente.
 
-Frame generation (`armsx3_lsfg`) **não** é compilada: o código de `3rdparty/lsfg/lsfg-vk-android`
-não está no repositório. Sem a biblioteca, o core desliga o recurso.
+Frame generation hoje roda **dentro do core** (`rpcs3/Emu/RSX/VK/FrameGen/`, compilado). O alvo
+separado `armsx3_lsfg` (`libarmsx3_lsfg.so`) é o caminho antigo e não é gerado, porque o código de
+`3rdparty/lsfg/lsfg-vk-android` não está no repositório. O workflow só o compila se esse código
+existir.
+
+O APK também **não** inclui `librashader.so`. O core só usa os cabeçalhos e abre a biblioteca com
+`dlopen`; sem ela, os filtros do librashader ficam indisponíveis. O efeito disso no app ainda não foi
+verificado.
 
 ## Estado
 
@@ -84,5 +90,6 @@ não está no repositório. Sem a biblioteca, o core desliga o recurso.
 | Glue JNI do app (`libarmsx3-jni.so`, com a ponte de métricas) via Gradle | **OK** |
 | Testes JVM do app | **OK** |
 | Core completo (`libarmsx3-core.so`, inclui o LLVM) | **OK** neste ambiente: 1,28 GB com símbolos, 99,6 MB sem; exporta os 4 símbolos `_armadasx3_*` |
-| APK | Ver o relatório da tarefa |
+| APK (`assembleGithubRelease`, minSdk 33, assinado com a chave de debug) | **OK** neste ambiente: cerca de 77 MB, com `libarmsx3-core.so` e `libarmsx3-jni.so`; o R8 preserva os métodos JNI e os serializadores |
+| Carimbo de versão | Rode `android/stamp-git-version.sh` **antes** de compilar; sem isso o core informa o commit da última configuração do CMake |
 | Workflow de CI de build completo | Escrito; ainda não executado no GitHub Actions |
