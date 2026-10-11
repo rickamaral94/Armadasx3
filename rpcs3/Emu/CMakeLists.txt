@@ -19,6 +19,7 @@ add_library(rpcs3_emu STATIC
     perf_monitor.cpp
     IPC_config.cpp
     IPC_socket.cpp
+    Io/SkylanderPortalIPC_config.cpp
 )
 
 if(USE_LTO)
@@ -140,10 +141,20 @@ target_sources(rpcs3_emu PRIVATE
     ../Loader/ISO.cpp
     ../Loader/CHD.cpp
     ../Loader/iso_cache.cpp
-    ../Loader/content_validation.cpp
     ../Loader/TROPUSR.cpp
     ../Loader/TRP.cpp
 )
+
+# Armadasx3: the IRD/content integrity check is built on upstream's reworked ISO reader, which this
+# tree does not carry (ARMSX3 reverted it in f707458b0 after it failed to open users' images). Only
+# the desktop Qt UI uses it, so it is left out of the Android core rather than half-ported.
+if(NOT ANDROID)
+    target_sources(rpcs3_emu PRIVATE
+        ../Loader/IRD.cpp
+        ../Loader/IRD_validation.cpp
+        ../Loader/content_validation.cpp
+    )
+endif()
 
 # Audio
 target_sources(rpcs3_emu PRIVATE
@@ -445,6 +456,7 @@ target_sources(rpcs3_emu PRIVATE
     Io/RB3MidiKeyboard.cpp
     Io/recording_config.cpp
     Io/Skylander.cpp
+    Io/SkylanderPortalIPC.cpp
     Io/TopShotElite.cpp
     Io/TopShotFearmaster.cpp
     Io/Turntable.cpp

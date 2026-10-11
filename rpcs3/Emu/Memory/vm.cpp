@@ -1597,6 +1597,39 @@ namespace vm
 
 	bool block_t::try_alloc(u32 addr, u64 bflags, u32 size, std::shared_ptr<utils::shm>&& shm) const
 	{
+		if (!size)
+		{
+			return false;
+		}
+
+		if (this->flags & stack_guarded)
+		{
+			ensure(this->size >= 0x100000);
+
+			if (addr < this->addr + 4096 || addr + size - 1 >= this->addr + this->size - 4096 - 1)
+			{
+				return false;
+			}
+
+			// Protect guard pages
+			if (g_pages[addr / 4096 - 1] || g_pages[addr / 4096 + size / 4096])
+			{
+				return  false;
+			}
+
+			// Guard pages must be consecutive for non-edge allocations
+			if (addr > this->addr + 4096 && g_pages[addr / 4096 - 2])
+			{
+				return false;
+			}
+
+			// Same
+			if (size + addr < this->addr + this->size - 4096 && g_pages[addr / 4096 + size / 4096 + 1])
+			{
+				return false;
+			}
+		}
+
 		// Check if memory area is already mapped
 		for (u32 i = addr / 4096; i <= (addr + size - 1) / 4096; i++)
 		{
@@ -1605,9 +1638,6 @@ namespace vm
 				return false;
 			}
 		}
-
-		const u32 page_addr = addr + (this->flags & stack_guarded ? 0x1000 : 0);
-		const u32 page_size = size - (this->flags & stack_guarded ? 0x2000 : 0);
 
 		// No flags are default to readable/writable
 		// Explicit (un...) flags are used to protect from such access
@@ -1637,15 +1667,8 @@ namespace vm
 			flags |= page_1m_size;
 		}
 
-		if (this->flags & stack_guarded)
-		{
-			// Mark overflow/underflow guard pages as allocated
-			ensure(!g_pages[addr / 4096].exchange(page_allocated));
-			ensure(!g_pages[addr / 4096 + size / 4096 - 1].exchange(page_allocated));
-		}
-
 		// Map "real" memory pages; provide a function to search for mirrors with private member access
-		_page_map(page_addr, flags, page_size, shm.get(), this->flags, [](vm::block_t* _this, utils::shm* shm)
+		_page_map(addr, flags, size, shm.get(), this->flags, [](vm::block_t* _this, utils::shm* shm)
 		{
 			auto& map = (_this->m.*block_map)();
 
@@ -1672,23 +1695,15 @@ namespace vm
 		// Fill stack guards with STACKGRD
 		if (this->flags & stack_guarded)
 		{
-			auto fill64 = [](u8* ptr, u64 data, usz count)
+			const auto fill64 = [](u8* ptr, u64 data, usz count)
 			{
-#if defined(_M_X64) && defined(_MSC_VER)
-				__stosq(reinterpret_cast<u64*>(ptr), data, count);
-#elif defined(ARCH_X64)
-				__asm__ ("mov %0, %%rdi; mov %1, %%rax; mov %2, %%rcx; rep stosq;"
-					:
-					: "r" (ptr), "r" (data), "r" (count)
-					: "rdi", "rax", "rcx", "memory");
-#else
-				for (usz i = 0; i < count; i++)
-					reinterpret_cast<u64*>(ptr)[i] = data;
-#endif
+				u64* dst = reinterpret_cast<u64*>(ptr);
+				std::fill(dst, dst + count, data);
 			};
 
-			const u32 enda = addr + size - 4096;
-			fill64(g_sudo_addr + addr, "STACKGRD"_u64, 4096 / sizeof(u64));
+			const u32 begina = addr - 4096;
+			const u32 enda = addr + size;
+			fill64(g_sudo_addr + begina, "STACKGRD"_u64, 4096 / sizeof(u64));
 			fill64(g_sudo_addr + enda, "UNDERFLO"_u64, 4096 / sizeof(u64));
 		}
 
@@ -1867,7 +1882,7 @@ namespace vm
 		const u32 min_page_size = flags & block_size_4k ? 0x1000 : 0x10000;
 
 		// Align to minimal page size
-		const u32 size = utils::align(orig_size, min_page_size) + (flags & stack_guarded ? 0x2000 : 0);
+		const u32 size = utils::align(orig_size, min_page_size);
 
 		// Check alignment (it's page allocation, so passing small values there is just silly)
 		if (align < min_page_size || align != (0x80000000u >> std::countl_zero(align)))
@@ -1915,7 +1930,7 @@ namespace vm
 		{
 			if (try_alloc(addr, flags, size, std::move(shm)))
 			{
-				return addr + (flags & stack_guarded ? 0x1000 : 0);
+				return addr;
 			}
 
 			if (addr == max)
@@ -2010,7 +2025,7 @@ namespace vm
 
 			vm::writer_lock lock;
 
-			const auto found = m_map.find(addr - (flags & stack_guarded ? 0x1000 : 0));
+			const auto found = m_map.find(addr);
 
 			if (found == m_map.end())
 			{
@@ -2023,14 +2038,7 @@ namespace vm
 			}
 
 			// Get allocation size
-			const auto size = found->second.first - (flags & stack_guarded ? 0x2000 : 0);
-
-			if (flags & stack_guarded)
-			{
-				// Clear guard pages
-				ensure(g_pages[addr / 4096 - 1].exchange(0) == page_allocated);
-				ensure(g_pages[addr / 4096 + size / 4096].exchange(0) == page_allocated);
-			}
+			const auto size = found->second.first;
 
 			// Unmap "real" memory pages
 			ensure(size == _page_unmap(addr, size, this->flags, found->second.second.get(), unmap_notification.event_data));
@@ -2096,7 +2104,7 @@ namespace vm
 
 		for (auto& entry : (m.*block_map)())
 		{
-			result += entry.second.first - (flags & stack_guarded ? 0x2000 : 0);
+			result += entry.second.first;
 		}
 
 		return result;
@@ -2246,7 +2254,7 @@ namespace vm
 		for (const auto& [addr, shm] : m_map)
 		{
 			// Assume first page flags represent all the map
-			ar(g_pages[addr / 4096 + !!(flags & stack_guarded)]);
+			ar(g_pages[addr / 4096]);
 
 			ar(addr);
 			ar(shm.first);
@@ -2263,8 +2271,7 @@ namespace vm
 				}
 
 				// Save raw binary image
-				const u32 guard_size = flags & stack_guarded ? 0x1000 : 0;
-				serialize_memory_bytes(ar, vm::get_super_ptr<u8>(addr + guard_size), shm.first - guard_size * 2);
+				serialize_memory_bytes(ar, vm::get_super_ptr<u8>(addr), shm.first);
 			}
 			else
 			{
@@ -2326,20 +2333,13 @@ namespace vm
 			{
 				pflags |= block_size_64k;
 			}
-			else if (flags & block_size_4k)
-			{
-				// The stack block is 4K, and this used to pass no size for it at all. try_alloc
-				// reads "no size" as 1M, so every restored stack was mapped with page_1m_size
-				// between guard pages that carry page_allocated alone, and the next _page_unmap,
-				// which is closing the game, threw "Memory inconsistency found! (addr=0xd0000000,
-				// flags: 0x80 vs 0xc0)" and took the process down. Bomberman ULTRA, 2026-09-27:
-				// save a state (which reloads it), then close. alloc() passes the block's own
-				// flags, so only a restored state ever reached this. Upstream has the same code.
-				pflags |= block_size_4k;
-			}
 			else if (!(flags & (block_size_mask & ~block_size_1m)))
 			{
 				pflags |= block_size_1m;
+			}
+			else
+			{
+				pflags |= block_size_4k;
 			}
 
 			// Map the memory through the same method as alloc() and falloc()
@@ -2349,8 +2349,7 @@ namespace vm
 			if (flags & preallocated)
 			{
 				// Load binary image
-				const u32 guard_size = flags & stack_guarded ? 0x1000 : 0;
-				serialize_memory_bytes(ar, vm::get_super_ptr<u8>(addr0 + guard_size), size0 - guard_size * 2);
+				serialize_memory_bytes(ar, vm::get_super_ptr<u8>(addr0), size0);
 			}
 		}
 	}

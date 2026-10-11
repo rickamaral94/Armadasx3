@@ -621,7 +621,7 @@ class spu_llvm_recompiler : public spu_recompiler_base, public cpu_translator
 				// Tail call to the real function
 				call_function(pfinfo->fn, true);
 
-				if (!result->getTerminator())
+				if (!llvm_has_terminator(result))
 					ret_function();
 			}
 			else
@@ -2940,7 +2940,7 @@ public:
 
 										m_ir->SetInsertPoint(cblock);
 
-										ensure(bfound->second.block_end->getTerminator());
+										ensure(llvm_has_terminator(bfound->second.block_end));
 									}
 
 									_phi->addIncoming(value, bfound->second.block_end);
@@ -3376,7 +3376,7 @@ public:
 						fmt::throw_exception("LLVM: Reduced Loop Pattern: Exit(2) too early at 0x%x", m_pos);
 					}
 
-					if (m_ir->GetInsertBlock()->getTerminator())
+					if (llvm_has_terminator(m_ir->GetInsertBlock()))
 					{
 						fmt::throw_exception("LLVM: Reduced Loop Pattern: Exit(3) too early at 0x%x", m_pos);
 					}
@@ -3529,7 +3529,7 @@ public:
 				m_reduced_loop_info = nullptr;
 
 				// Emit instructions
-				for (m_pos = baddr; m_pos >= start && m_pos < end && !m_ir->GetInsertBlock()->getTerminator(); m_pos += 4)
+				for (m_pos = baddr; m_pos >= start && m_pos < end && !llvm_has_terminator(m_ir->GetInsertBlock()); m_pos += 4)
 				{
 					if (m_pos != baddr && m_block_info[m_pos / 4])
 					{
@@ -3607,7 +3607,7 @@ public:
 				}
 
 				// Finalize block with fallthrough if necessary
-				if (!m_ir->GetInsertBlock()->getTerminator())
+				if (!llvm_has_terminator(m_ir->GetInsertBlock()))
 				{
 					const u32 target = m_pos == baddr ? baddr : m_pos & 0x3fffc;
 
@@ -4644,7 +4644,7 @@ public:
 						}
 					}
 
-					if (!m_ir->GetInsertBlock()->getTerminator())
+					if (!llvm_has_terminator(m_ir->GetInsertBlock()))
 					{
 						if (check)
 						{
@@ -4668,7 +4668,7 @@ public:
 							// Normal instruction.
 							(this->*decode(op))({op});
 
-							if (check && !m_ir->GetInsertBlock()->getTerminator())
+							if (check && !llvm_has_terminator(m_ir->GetInsertBlock()))
 							{
 								call("spu_interp_check", &interp_check, m_thread, m_ir->getTrue());
 							}
@@ -4736,7 +4736,7 @@ public:
 							m_ir->CreateRetVoid();
 						}
 
-						if (!m_ir->GetInsertBlock()->getTerminator())
+						if (!llvm_has_terminator(m_ir->GetInsertBlock()))
 						{
 							// Call next instruction.
 							const auto _stop = BasicBlock::Create(m_context, "", f);
@@ -8205,7 +8205,7 @@ public:
 		const bool perm_or_zero_only = known_idx.Zero[6];
 		const bool consts_only = known_idx.One[7];
 		const bool consts_never_msb = known_idx.Zero[5];
-		const bool consts_never_allones = known_idx.One[5];
+		[[maybe_unused]] const bool consts_never_allones = known_idx.One[5];
 		const bool idx_selects_single = known_idx.extractBits(1, 4).isConstant();
 
 		const auto a = get_vr<u8[16]>(op.ra);
@@ -8446,9 +8446,9 @@ public:
 		{
 			idx_consts = eval(sub_sat(c, splat<u8[16]>(0x60)) & 0x80);
 		}
-		else if (m_use_gfni)
+		else if (m_use_gfni && !(or_combine_safe && !m_use_avx512))
 		{
-			// TODO: Due to vpblendvb, the pshufb OR combine path is one fewer micro-ops post Rocket Lake. Check if it is faster.
+			// Keep OR combine due to slow blend on later Intel (AVX512 uses faster kmask method)
 			const auto gfni = gf2p8affineqb(c, build<u8[16]>(0x40, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x40, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20), 0x7f);
 			idx_consts = eval(select(noncast<s8[16]>(gfni) >= 0, splat<u8[16]>(0), gfni));
 			
