@@ -3,22 +3,25 @@
 ## Remotos
 
 ```sh
-git remote add armsx3 https://github.com/ARMSX2/ARMSX3   # fonte primária
+git remote add armsx3 https://github.com/ARMSX2/ARMSX3   # fonte primária (branch master)
 git remote add rpcs3  https://github.com/RPCS3/rpcs3     # correções pontuais
 ```
 
 | Remoto | Papel | Último ponto incorporado |
 |---|---|---|
-| `armsx3` (`main`/HEAD) | Base direta. Seus merges do RPCS3 chegam por ele | `f3bdcd5c` (1.0.9.1, 2026-10-09) |
-| `rpcs3` (`master`) | Base do ARMSX3. Só para correções que o ARMSX3 ainda não trouxe | merge-base `961c86fb` (2026-09-04), via ARMSX3 |
+| `armsx3` (`master`) | Base direta | `6dfb2967` (1.1, versionCode 86) |
+| `rpcs3` (`master`) | Correções que o ARMSX3 ainda não trouxe | `26098fb42` (2026-10-10), merge direto |
 
 ## Rotina de sincronização
 
-1. Busque os dois remotos: `git fetch armsx3 && git fetch rpcs3 master`.
+1. Busque os dois remotos **sem submódulos** (senão baixa o LLVM inteiro): `git fetch --no-recurse-submodules armsx3 && git fetch --no-recurse-submodules rpcs3 master`.
 2. Veja o que entrou: `git log --oneline HEAD..armsx3/HEAD`.
 3. Para mudanças no Cell ou no Vulkan, veja também
    `git log --oneline $(git merge-base HEAD rpcs3/master)..rpcs3/master -- rpcs3/Emu/Cell rpcs3/Emu/RSX`.
-4. Faça `git merge armsx3/HEAD` num branch próprio. Não use rebase: o histórico é compartilhado.
+4. Faça `git merge armsx3/master` e depois `git merge rpcs3/master` num branch próprio. Não use rebase: o histórico é compartilhado.
+   Vários arquivos do RPCS3 usam CRLF e o ARMSX3 os converteu para LF; um conflito do arquivo inteiro
+   quase sempre é só isso. Refaça o merge 3-way desses arquivos com as três versões normalizadas para LF
+   (`git merge-file`), e devolva CRLF aos arquivos que eram CRLF no nosso lado.
 5. Resolva conflitos. Os pontos de contato esperados estão na tabela abaixo.
 6. Rode os testes JVM (`./gradlew :app:testGithubDebugUnitTest` em `android/armsx3-ui`) e o build
    do core, quando disponível.
@@ -46,6 +49,7 @@ Toda mudança em arquivo herdado entra aqui, com o motivo. Código novo fica em
 | `.../cpp/savers/skyrocket/shockwave.cpp` | `<gl/gl.h>` → `<GL/gl.h>` | Só compilava em sistema de arquivos sem distinção de maiúsculas (macOS) |
 | `rpcs3/Emu/RSX/VK/vkutils/sync.cpp` | `"Emu/system.h"` → `"Emu/System.h"` | Idem; o erro veio do ARMSX3 `36c4820b8` |
 | `rpcs3/Emu/RSX/VK/FrameGen/FrameGenTypes.h` | Removido `#include "Config.h"` (arquivo inexistente) | No macOS resolvia por acaso para o `config.h` do wolfSSL; no Linux quebrava |
+| `rpcs3/Emu/CMakeLists.txt` | `IRD.cpp`, `IRD_validation.cpp` e `content_validation.cpp` só fora do Android | Dependem do leitor de ISO do RPCS3, que não usamos (veja abaixo) |
 
 Fora do código herdado: `android/src/armadasx3_metrics.{h,cpp}`,
 `.github/workflows/armadasx3-android-{unit-tests,build}.yml`, `ARMADASX3.md` e `docs/armadasx3/`.
@@ -53,8 +57,36 @@ Fora do código herdado: `android/src/armadasx3_metrics.{h,cpp}`,
 Candidatas a enviar ao ARMSX3 como PR (corrigem o build fora do macOS e sem o SDK do Discord):
 as mudanças em `build.gradle.kts`, `cpp/CMakeLists.txt`, `shockwave.cpp`, `sync.cpp` e `FrameGenTypes.h`.
 
+## Divergências deliberadas em relação ao RPCS3 (sincronização de 2026-10-11)
+
+Na sincronização com o RPCS3 `26098fb42`, 59 arquivos tiveram conflito (144 blocos). Regra aplicada: mudança específica de
+Android/ARM64 do ARMSX3, com justificativa documentada no código, foi mantida; correção do upstream que o ARMSX3
+não tinha foi trazida; onde os dois lados se sobrepunham, foram combinados. O que **não** veio do RPCS3 e por quê:
+
+| Área | Mantido do ARMSX3 / não trazido do RPCS3 | Motivo |
+|---|---|---|
+| Leitor de ISO (`Loader/ISO.*`) | Leitor do ARMSX3 inteiro. Não vieram: verificação por IRD (`532b6520b`), aviso de chave errada (`52616e0f1`), velocidade de leitura de drive BD (`8e2d700fa`), correção de caminhos de dispositivo ISO (`205a4481f`) | O ARMSX3 reverteu o refactor do leitor do RPCS3 (`f707458b0`) porque ele deixou de abrir imagens de usuários (provavelmente 3k3y). As novidades dependem desse refactor. `IRD.cpp`, `IRD_validation.cpp` e `content_validation.cpp` (usados só pela interface Qt) ficam fora do build Android (`rpcs3/Emu/CMakeLists.txt`) |
+| `cellAudio` | Versão do ARMSX3. Não vieram `7390f3dd9` (estalos de áudio em FMV com Audio Buffering) e `80567b686` (#19607, deadlock com `suspend_all`) | Não aplicam sobre a reescrita do ARMSX3; o `de6c84838` do ARMSX3 resolve o mesmo deadlock de outra forma. **Avaliar com teste no aparelho** |
+| `sys_rsx` (`_sys_rsx_drain_event_queue`) | `thread_ctrl::wait_for(100)` em vez de `utils::spin_on_cacheline_once` | No ARM o spin ignora o timeout e, em alguns núcleos, vira espera ocupada; o laço pode durar até 1 s |
+| FIFO (`RSXFIFO.*`) | Publicação de GET em lotes, busca de 4 KB com janelas de 1 KB, `sync_get_force` | Otimizações medidas pelo ARMSX3 (Spider-Man: Web of Shadows, Minecraft) que já incorporam as correções de GET do RPCS3 |
+| Vulkan: Turnip | Sem `g_drv_strict_query_scopes` no Turnip | O RPCS3 liga para travamentos no **Linux**; no Android custa um tile store por consulta de oclusão e não há caso conhecido. Testar se um jogo travar no Turnip |
+| Vulkan: cache de pipeline | Cache persistente do dispositivo (salvo em disco) | O RPCS3 cria um cache em memória por sessão |
+| Vulkan: render pass em barreira de textura | Mantido aberto no Android | Medido pelo ARMSX3: 20–23 reinícios a menos por frame em Arkham City |
+| Memória (`vm.cpp`) | Notificação do RSX para **todo** mapeamento | O filtro do RPCS3 fez Guitar Hero World Tour perder a GPU no Turnip (Odin 3) |
+| Fabricante da GPU | `QUALCOMM` do RPCS3 = `ADRENO` do ARMSX3 | O enum do ARMSX3 já tinha os fabricantes móveis |
+
+Trazido do RPCS3 nesta sincronização, entre outros: estimativas vetoriais precisas na PPU (`accurate_vest`, que entra
+na identidade do cache da PPU, então os jogos recompilam o cache uma vez), caminho SVE para upload de índices
+(ativa só se a CPU e o kernel reportarem SVE), renderização sem attachments, emulação da faixa de profundidade
+(OpenGL), pausa do driver manager durante captura de tela, emulação da velocidade de leitura de HDD/Blu-ray
+(desligada por padrão), correção de `vm::main` em capturas RSX, correção de deadlock no decodificador de música,
+escape de nomes na instalação de PKG e versão 25 de savestate. **Savestates de builds anteriores podem não
+carregar.**
+
 ## Histórico de sincronizações
 
 | Data | De | Até | Conflitos | Observações |
 |---|---|---|---|---|
 | 2026-10-10 | — | `armsx3` `f3bdcd5c` | — | Importação inicial com histórico completo |
+| 2026-10-11 | `armsx3` `f3bdcd5c` | `armsx3` `6dfb2967` (1.1) | 0 | 10 commits |
+| 2026-10-11 | merge-base `961c86fb` | `rpcs3` `26098fb42` | 59 arquivos / 144 blocos | 224 commits novos (75 já estavam no ARMSX3); divergências acima |
