@@ -394,6 +394,12 @@ namespace gl::es
 		return glCheckFramebufferStatus(target);
 	}
 
+	void glNamedFramebufferParameteriEXT(GLuint framebuffer, GLenum pname, GLint param)
+	{
+		const scoped_fbo_bind bind(framebuffer);
+		glFramebufferParameteri(GL_FRAMEBUFFER, pname, param);
+	}
+
 	void glFramebufferDrawBuffersEXT(GLuint framebuffer, GLsizei n, const GLenum* bufs)
 	{
 		const scoped_fbo_bind bind(framebuffer);
@@ -463,6 +469,11 @@ namespace gl::es
 	void glNamedFramebufferTexture(GLuint framebuffer, GLenum attachment, GLuint texture, GLint level)
 	{
 		glNamedFramebufferTextureEXT(framebuffer, attachment, texture, level);
+	}
+
+	void glNamedFramebufferParameteri(GLuint framebuffer, GLenum pname, GLint param)
+	{
+		glNamedFramebufferParameteriEXT(framebuffer, pname, param);
 	}
 
 	// Layered attach, needed since upstream started binding 3D/array/cube levels through DSA.

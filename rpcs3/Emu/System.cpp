@@ -1957,11 +1957,6 @@ game_boot_result Emulator::Load(const std::string& title_id, bool is_disc_patch,
 
 				load_iso(disc_info);
 
-				if (const game_boot_result result = check_disc_key(disc_info); is_error(result))
-				{
-					return result;
-				}
-
 				m_path = iso_device::virtual_device_name + "/" + argv[0];
 
 				resolve_path_as_vfs_path = false;
@@ -2669,11 +2664,6 @@ game_boot_result Emulator::Load(const std::string& title_id, bool is_disc_patch,
 					sys_log.notice("Loading iso archive for patch ('%s')", game_path);
 
 					load_iso(game_path);
-
-					if (const game_boot_result result = check_disc_key(game_path); is_error(result))
-					{
-						return result;
-					}
 
 					launching_from_disc_archive = true;
 					game_path = iso_device::virtual_device_name + "/PS3_GAME/./";
