@@ -4823,6 +4823,19 @@ void thread_ctrl::detect_cpu_layout()
 		if (highest && lowest != umax && highest > lowest)
 		{
 			sig_log.notice("Detected ARM heterogeneous CPU (capacity %u..%u)", lowest, highest);
+
+			// Armadasx3: per-core capacity, and which cores get_affinity_mask() will call
+			// fast (>= 75% of the best). Without this a diagnostic report cannot tell
+			// whether the mid cluster was given to the SPUs or left with the LITTLE cores.
+			std::string per_core;
+			for (u32 core = 0; core < 64u; core++)
+			{
+				if (caps[core])
+				{
+					fmt::append(per_core, " cpu%u=%u%s", core, caps[core], caps[core] >= highest * 3 / 4 ? "(fast)" : "");
+				}
+			}
+			sig_log.notice("ARM core capacities:%s", per_core);
 			g_native_core_layout.store(native_core_arrangement::arm_big_little);
 			return;
 		}

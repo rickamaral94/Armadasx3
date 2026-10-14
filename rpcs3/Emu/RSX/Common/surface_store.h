@@ -1546,7 +1546,17 @@ namespace rsx
 			free_resource_list(m_render_targets_storage, m_render_targets_memory_range);
 			free_resource_list(m_depth_stencil_storage, m_depth_stencil_memory_range);
 
-			ensure(m_active_memory_used == 0);
+			// Armadasx3: only reached when the renderer is destroyed. A residue here is accounting drift --
+			// allocate_rsx_memory() adds a surface's range length at creation, free_rsx_memory() subtracts its
+			// length at invalidation, and a surface resized in between or lying outside the tracked ranges
+			// leaves a remainder -- not memory still in use, since every storage was just invalidated. The
+			// ensure() took the whole app down on every game exit (Fight Night Round 4 on the Odin 2 Portal,
+			// both sessions of 2026-10-14). Record it and carry on with the teardown.
+			if (m_active_memory_used != 0)
+			{
+				rsx_log.error("Surface cache accounting left %llu bytes at teardown; resetting", m_active_memory_used);
+				m_active_memory_used = 0;
+			}
 
 			m_bound_depth_stencil = std::make_pair(0, nullptr);
 			m_bound_render_target_ids.clear();

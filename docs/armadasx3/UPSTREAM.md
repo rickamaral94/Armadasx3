@@ -50,6 +50,8 @@ Toda mudança em arquivo herdado entra aqui, com o motivo. Código novo fica em
 | `rpcs3/Emu/RSX/VK/vkutils/sync.cpp` | `"Emu/system.h"` → `"Emu/System.h"` | Idem; o erro veio do ARMSX3 `36c4820b8` |
 | `rpcs3/Emu/RSX/VK/FrameGen/FrameGenTypes.h` | Removido `#include "Config.h"` (arquivo inexistente) | No macOS resolvia por acaso para o `config.h` do wolfSSL; no Linux quebrava |
 | `rpcs3/Emu/CMakeLists.txt` | `IRD.cpp`, `IRD_validation.cpp` e `content_validation.cpp` só fora do Android | Dependem do leitor de ISO do RPCS3, que não usamos (veja abaixo) |
+| `rpcs3/Emu/RSX/Common/surface_store.h` | `invalidate_all()`: resíduo em `m_active_memory_used` vira log de erro + zera, em vez de `ensure()` | O `ensure` derrubava o app ao sair de Fight Night Round 4 (Odin 2 Portal, 2026-10-14). Só roda na destruição do renderer |
+| `Utilities/Thread.cpp` | `detect_cpu_layout()` registra a capacidade de cada núcleo e quais contam como rápidos | Interpretar no diagnóstico o efeito do Thread Scheduler em big.LITTLE |
 
 Fora do código herdado: `android/src/armadasx3_metrics.{h,cpp}`,
 `.github/workflows/armadasx3-android-{unit-tests,build}.yml`, `ARMADASX3.md` e `docs/armadasx3/`.
