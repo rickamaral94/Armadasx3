@@ -225,6 +225,13 @@ object SessionDiagnostics {
                 file("config/custom_configs/config_$serial.yml", "game_config", File(root, "config/custom_configs/config_$serial.yml"))
             }
             file("config/driver_env.txt", "driver_config", File(root, "driver_env.txt"))
+            // Only a PGO-instrumented core (-DARMSX3_PGO=generate) writes these: per-function
+            // execution counters, flushed when the app goes to the background. No paths, no game
+            // data -- they feed the next optimised build. Newest first, a few at most.
+            File(cache, "pgo").listFiles { f -> f.name.endsWith(".profraw") }
+                ?.sortedByDescending { it.lastModified() }
+                ?.take(4)
+                ?.forEach { file("pgo/${it.name}", "pgo_profile", it, isText = false) }
         }
         file("logs/session.log", "app_log", File(appLogs, "session.log"))
         appLogs.listFiles { f -> f.name.startsWith("crash-") && f.name.endsWith(".txt") }

@@ -30,3 +30,19 @@ Do fork do Cemu (`rickamaral94/Cemu-Fork-Amaral`) não há otimização de CPU a
 JIT, afinidade, prioridades nem esperas. O que se aproveita é o método (A/B com repetições, mediana,
 sessões longas para térmica) e a telemetria de frequência por núcleo e de throttling, que falta no
 nosso diagnóstico.
+
+## Item 2 em andamento: LTO, `-mtune` e PGO
+
+- `android/CMakeLists.txt`: `USE_LTO=ON` liga ThinLTO em `rpcs3_emu` e na biblioteca do core (o LLVM
+  fica de fora); `ARMSX3_TUNE` (padrão `cortex-x3`) passa `-mtune` só a esses dois alvos. `-mtune` não
+  muda o conjunto de instruções, então o APK continua rodando em qualquer armv8.2.
+- CI (`armadasx3-android-build.yml`): entradas `lto` (padrão ligado), `pgo` (`off`/`generate`/`use`) e
+  `pgo_profile` (padrão `android/pgo/armsx3.profdata`). O nome do APK diz como foi compilado.
+- Coleta do perfil: build com `pgo = generate` (mais lento, só para isso) → jogar o cenário alvo →
+  apertar Home (o perfil é gravado quando o app vai para segundo plano) → exportar o diagnóstico, que
+  inclui `pgo/*.profraw`. Depois: `llvm-profdata merge -o android/pgo/armsx3.profdata *.profraw` com o
+  `llvm-profdata` do mesmo NDK, commit, e build com `pgo = use`.
+- Um perfil envelhece com o código; regenere quando o core mudar bastante. Perfil velho já piorou o
+  desempenho do projeto irmão (comentário em `android/CMakeLists.txt`).
+- Comparação: mesmo jogo, mesma cena, mesmo driver, A/B alternado, várias sessões; mediana do FPS e do
+  p99 em jogo.

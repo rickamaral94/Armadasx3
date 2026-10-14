@@ -107,6 +107,7 @@ pela própria instrumentação **ainda não foi medido** no aparelho.
 | `config/config.yml` | Configuração global do core | marcado |
 | `config/custom_configs/config_<serial>.yml` | Configuração do core por jogo | marcado |
 | `config/driver_env.txt` | Variáveis Mesa/Turnip | marcado |
+| `pgo/*.profraw` | Contadores de PGO (só em build instrumentado `-DARMSX3_PGO=generate`; até 4, os mais novos). Sem caminhos nem dados de jogo | marcado |
 
 Por que `.old.log` vai marcado: depois de um crash, a reabertura do app faz o core rotacionar
 `ARMSX3.log` para `ARMSX3.old.log`. O log da sessão interrompida costuma estar ali. Um log com

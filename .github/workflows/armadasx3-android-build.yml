@@ -13,9 +13,25 @@ on:
         default: a13
         type: choice
         options: [a13, a15]
+      lto:
+        description: 'ThinLTO for the emulator code (rpcs3_emu + core library)'
+        required: true
+        default: true
+        type: boolean
+      pgo:
+        description: 'PGO: off; generate = instrumented build that records a profile; use = optimise with pgo_profile'
+        required: true
+        default: 'off'
+        type: choice
+        options: ['off', generate, use]
+      pgo_profile:
+        description: 'Merged .profdata in the repository, for pgo = use'
+        required: false
+        default: 'android/pgo/armsx3.profdata'
+        type: string
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.variant }}
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.variant }}-${{ inputs.pgo }}
   cancel-in-progress: true
 
 permissions:
@@ -87,10 +103,19 @@ jobs:
             a15) API=35 ;;
           esac
           echo "API=$API" >> "$GITHUB_ENV"
+          case "${{ inputs.pgo }}" in
+            off) PGO_ARGS="" ;;
+            generate) PGO_ARGS="-DARMSX3_PGO=generate" ;;
+            use)
+              test -f "${{ inputs.pgo_profile }}" || { echo "PGO profile not found: ${{ inputs.pgo_profile }}"; exit 1; }
+              PGO_ARGS="-DARMSX3_PGO=use -DARMSX3_PGO_PROFILE=$PWD/${{ inputs.pgo_profile }}" ;;
+          esac
           bash android/stamp-git-version.sh
           NDK_VERSION="$NDK_VERSION" ANDROID_API="$API" BUILD_DIR="$PWD/build-core" \
             bash android/configure.sh \
               -DARMSX3_ARM_MARCH=armv8.2-a+dotprod+fp16 \
+              -DUSE_LTO=${{ inputs.lto && 'ON' || 'OFF' }} \
+              $PGO_ARGS \
               -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 
       - name: Build core
@@ -140,11 +165,11 @@ jobs:
           mkdir -p out
           V=$(sed -n 's/.*versionName = "\([^"]*\)".*/\1/p' android/armsx3-ui/app/build.gradle.kts | head -1)
           cp android/armsx3-ui/app/build/outputs/apk/github/release/app-github-release.apk \
-            "out/Armadasx3-$V-${{ inputs.variant }}-${GITHUB_SHA::8}.apk"
+            "out/Armadasx3-$V-${{ inputs.variant }}-${{ inputs.lto && 'lto' || 'nolto' }}-pgo_${{ inputs.pgo }}-${GITHUB_SHA::8}.apk"
           sha256sum out/*.apk | tee out/SHA256SUMS
 
       - uses: actions/upload-artifact@v4
         with:
-          name: armadasx3-${{ inputs.variant }}-${{ github.sha }}
+          name: armadasx3-${{ inputs.variant }}-${{ inputs.lto && 'lto' || 'nolto' }}-pgo_${{ inputs.pgo }}-${{ github.sha }}
           path: out/
           retention-days: 14

@@ -116,6 +116,34 @@ target_link_libraries(rpcsx-android
 )
 
 # ---------------------------------------------------------------------------
+# Armadasx3: LTO and core tuning, scoped like PGO below
+# ---------------------------------------------------------------------------
+#
+# Only the emulator's own code -- rpcs3_emu and this library -- not LLVM or the rest of 3rdparty:
+# that is where the frame time goes (MFC/channels, vm, lv2, the RSX thread), and leaving LLVM
+# alone keeps the link within a CI runner's memory. The JIT's output is unaffected either way.
+#
+# USE_LTO (top-level) already makes rpcs3_emu IPO; the final library has to be IPO too, or lld
+# links the bitcode without the cross-module pass. CMake's IPO flag for clang is ThinLTO.
+#
+# -mtune changes instruction scheduling only, never which instructions are used, so the build
+# still runs on every armv8.2 core; it just schedules for the core that runs the hot threads.
+# The Odin 2 Portal's SPU/RSX threads run on X3/A715/A710, all of the same Arm generation.
+set(ARMSX3_TUNE "cortex-x3" CACHE STRING "-mtune for rpcs3_emu and the core library (empty: none)")
+
+if(USE_LTO)
+    set_target_properties(rpcsx-android PROPERTIES INTERPROCEDURAL_OPTIMIZATION ON)
+    message(STATUS "ARMSX3: LTO ON for rpcs3_emu and rpcsx-android")
+endif()
+
+if(ARMSX3_TUNE)
+    foreach(tune_target rpcs3_emu rpcsx-android)
+        target_compile_options(${tune_target} PRIVATE -mtune=${ARMSX3_TUNE})
+    endforeach()
+    message(STATUS "ARMSX3: -mtune=${ARMSX3_TUNE} for rpcs3_emu and rpcsx-android")
+endif()
+
+# ---------------------------------------------------------------------------
 # Profile-guided optimisation
 # ---------------------------------------------------------------------------
 #
