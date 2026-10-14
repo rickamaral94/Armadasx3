@@ -4978,9 +4978,24 @@ u64 thread_ctrl::get_affinity_mask(thread_class group)
 				}
 			}
 
-			const u64 spu_mask = (std::popcount(fast_mask & ~prime_mask) > 1)
+			// Armadasx3: the SPUs are only fenced into the fast cluster when it has a core for
+			// each of the six SPUs a game can run. On the Snapdragon 8 Gen 2 (3x A510, 4x
+			// A710/A715, 1x X3) the fast cluster minus the prime core is four cores at best, and
+			// Fight Night Round 4 -- six busy SPU threads -- fell from ~45 to ~22 fps with this
+			// policy (SPU threads 2x the involuntary switches, RSX 4x, process CPU 7.0 -> 5.7
+			// cores; Odin 2 Portal, 2026-10-14). Six threads on four cores lose more than the
+			// LITTLE cores do, so spread them over everything but the prime core instead,
+			// which is still left to RSX.
+			constexpr int max_spu_threads = 6;
+			const u64 spu_mask = (std::popcount(fast_mask & ~prime_mask) >= max_spu_threads)
 				? (fast_mask & ~prime_mask)
-				: fast_mask;
+				: (std::popcount(all_cores_mask & ~prime_mask) > 1 ? (all_cores_mask & ~prime_mask) : all_cores_mask);
+
+			static atomic_t<bool> s_masks_logged = false;
+			if (!s_masks_logged.exchange(true))
+			{
+				sig_log.notice("big.LITTLE affinity: spu=0x%x rsx=0x%x ppu=0x%x other=0x%x", spu_mask, fast_mask, all_cores_mask, slow_mask);
+			}
 
 			switch (group)
 			{
