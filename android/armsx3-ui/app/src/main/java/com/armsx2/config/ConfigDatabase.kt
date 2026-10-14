@@ -171,6 +171,14 @@ object ConfigDatabase {
         // it is this title only, and the per-game database toggle takes it back.
         "BLUS30218" to "Core:\n  Accurate SPU Reservations: false\n",
 
+        // Fight Night Round 4: Accurate SPU Reservations off, for the same reason as Web of
+        // Shadows. Its six Job Manager SPU threads reached vm::writer_lock about 53,000 times a
+        // second, with ~90 ms of long waits per second on a PPU queued for a core. Off, no long
+        // waits at all: 45.6 -> 48.6 fps in the ring, p99 40.6 -> 38.0 ms, longest hitch 1.95 ->
+        // 0.59 s, same build, driver and scheduler (Odin 2 Portal, system driver, 2026-10-14). No
+        // visual or audio problem noticed by the tester. The EU disc was not tested on its own.
+        "BLUS30285" to "Core:\n  Accurate SPU Reservations: false\n",
+
         // Blades of Time: SPU Cache off.
         //
         // When the game's saved SPU list is built at startup, its JobMgr#1 thread reads a null
