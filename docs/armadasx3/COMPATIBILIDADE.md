@@ -36,6 +36,9 @@ Aspectos avaliados separadamente: **inicialização**, **estabilidade**, **gráf
 
 | Jogo | Serial | Região | Versão | Build | Driver | Config. relevante | Cenário / duração | Cache | Init | Estab. | Gráficos | Áudio | Controles | Desempenho | Estado | Evidência | Data |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| Fight Night Round 4 | BLUS30285 | US | — | `0f881c8a` | Sistema e Turnip Amaral 26.3.0-devel | Padrão (Scheduler OS, SPURS 6, Block Safe) | Lutas, ~8 min cada | Quente | Sim | Fechava ao sair (`surface_store`) | Sem problema relatado | — | — | 44,5 / 46,4 FPS; p99 47–48 ms; travadas de até 1,7 s no início das lutas | `3-jogavel-com-problemas` | Pacotes do usuário 052920 e 054846 | 2026-10-14 |
+| Fight Night Round 4 | BLUS30285 | US | — | `0f881c8a` | Turnip Amaral 26.3.0-devel | Scheduler RPCS3 Alternative, SPURS 4, Block Mega | Lutas, ~8 min | Quente | Sim | Fechava ao sair | — | — | — | **24,3 FPS**, 494 quadros > 100 ms (6 SPUs presas a 4 núcleos; corrigido em `92fcf31b`) | `3-jogavel-com-problemas` | Pacote 062319 (ZIP truncado) | 2026-10-14 |
+| Fight Night Round 4 | BLUS30285 | US | — | `92fcf31b` | Turnip Amaral 26.3.0-devel | Padrão (Scheduler OS, SPURS 6, Block Safe) | ~26 min | Quente | Sim | Saída sem fechar o app (correção validada) | — | — | — | 49,6 FPS; p50 18,3 ms; p99 41,5 ms; maior travada 1,8 s; ~56 mil barreiras de PPU/s nas SPUs | `3-jogavel-com-problemas` | Pacote 131811 | 2026-10-14 |
 
 ## Escolha dos primeiros jogos de baseline
 
