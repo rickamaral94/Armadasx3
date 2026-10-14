@@ -1164,7 +1164,7 @@
  "diag.privacy": "Nunca incluídos: jogos, firmware, BIOS, chaves ou licenças, saves, dados de conta. Nomes de pastas pessoais nos logs são substituídos quando reconhecidos. O arquivo fica neste aparelho até você compartilhá-lo.",
  "diag.choose": "Escolher onde salvar",
  "diag.dismissInterrupted": "Descartar a sessão interrompida",
- "diag.working": "Gravando diagnóstico…",
+ "diag.working": "Gravando diagnóstico… espere aparecer \"Diagnóstico salvo\" antes de compartilhar o arquivo.",
  "diag.exported": "Diagnóstico salvo (%s arquivos mais report.json).",
  "diag.failed": "Falha ao exportar: %s"
 }

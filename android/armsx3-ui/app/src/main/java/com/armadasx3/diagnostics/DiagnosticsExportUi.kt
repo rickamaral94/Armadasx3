@@ -77,19 +77,19 @@ fun DiagnosticsExportRow(
             return@rememberLauncherForActivityResult
         }
         status = I18n.get("diag.working")
-        scope.launch(Dispatchers.IO) {
-            val r = runCatching {
-                context.contentResolver.openOutputStream(uri)?.use {
-                    SessionDiagnostics.export(context, it, plan, pendingSelection, pendingNotes)
-                } ?: error("could not open destination")
-            }
+        val appContext = context.applicationContext
+        val selection = pendingSelection
+        val notes = pendingNotes
+        // Not the composition's scope: leaving the screen must not orphan a half-written zip.
+        SessionDiagnostics.exportScope.launch {
+            val r = runCatching { SessionDiagnostics.exportTo(appContext, uri, plan, selection, notes) }
             withContext(Dispatchers.Main) {
                 busy = false
                 status = r.fold(
                     onSuccess = { I18n.get("diag.exported").replace("%s", it.files.size.toString()) },
                     onFailure = { I18n.get("diag.failed").replace("%s", it.message ?: it.javaClass.simpleName) },
                 )
-                Toast.makeText(context, status, Toast.LENGTH_LONG).show()
+                Toast.makeText(appContext, status, Toast.LENGTH_LONG).show()
             }
         }
     }

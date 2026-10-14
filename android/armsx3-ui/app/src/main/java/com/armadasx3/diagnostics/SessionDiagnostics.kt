@@ -6,14 +6,19 @@ import android.content.ComponentCallbacks2
 import android.content.Context
 import android.content.pm.ApplicationInfo
 import android.content.res.Configuration
+import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
 import android.os.Process
 import android.os.SystemClock
+import android.provider.DocumentsContract
 import com.armsx2.CustomDriver
 import com.armsx2.GameInfo
 import com.armsx2.config.ConfigStore
 import com.armsx2.runtime.MainActivityRuntime
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.serialization.json.Json
 import java.io.File
 import java.io.OutputStream
@@ -234,6 +239,30 @@ object SessionDiagnostics {
         val stamp = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss").withZone(ZoneOffset.UTC).format(Instant.now())
         val serial = plan.record?.state?.game?.serial?.let { "-" + it.filter(Char::isLetterOrDigit) } ?: ""
         return "armadasx3-diagnostico-$stamp$serial.zip"
+    }
+
+    /** Outlives the settings screen, so an export the user walked away from still finishes. */
+    val exportScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    /**
+     * Builds the bundle in the app's cache and only then copies it to [uri]. Written straight to
+     * the destination, a 28 MB log took long enough to redact that the half-written zip was
+     * already in the user's folder, and two bundles were shared cut off mid-log (no report.json).
+     * On failure the empty destination document is removed rather than left looking like a bundle.
+     */
+    fun exportTo(context: Context, uri: Uri, plan: Plan, selected: Set<String>, notes: UserNotes): BundleWriter.Result {
+        val tmp = File.createTempFile("diag-", ".zip", context.cacheDir)
+        try {
+            val result = tmp.outputStream().buffered().use { export(context, it, plan, selected, notes) }
+            val out = context.contentResolver.openOutputStream(uri, "wt") ?: error("could not open destination")
+            out.use { o -> tmp.inputStream().use { it.copyTo(o) } }
+            return result
+        } catch (t: Throwable) {
+            runCatching { DocumentsContract.deleteDocument(context.contentResolver, uri) }
+            throw t
+        } finally {
+            tmp.delete()
+        }
     }
 
     fun export(context: Context, out: OutputStream, plan: Plan, selected: Set<String>, notes: UserNotes): BundleWriter.Result {

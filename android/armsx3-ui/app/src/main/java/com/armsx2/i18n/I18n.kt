@@ -372,7 +372,7 @@ val EN: Map<String, String> = mapOf(
     "diag.privacy" to "Never included: games, firmware, BIOS, keys or licences, saves, account data. Personal folder names in logs are replaced where they can be recognised. The file stays on this device until you share it.",
     "diag.choose" to "Choose where to save",
     "diag.dismissInterrupted" to "Discard the interrupted session",
-    "diag.working" to "Writing diagnostics…",
+    "diag.working" to "Writing diagnostics… wait for \"Diagnostics saved\" before sharing the file.",
     "diag.exported" to "Diagnostics saved (%s files plus report.json).",
     "diag.failed" to "Export failed: %s",
     "app.savedata.import" to "Import save data",
