@@ -1,4 +1,5 @@
 #include "armadasx3_metrics.h"
+#include "armadasx3_spu_difftest.h"
 
 #include "Emu/Cell/PPUThread.h"
 #include "Emu/Cell/SPUThread.h"
@@ -111,6 +112,8 @@ namespace armadasx3::metrics
 			g_write.release(w + 1);
 		}
 		g_last_flip_us = now_us;
+
+		armadasx3::spu_difftest::on_guest_flip();
 
 		if (now_us - g_last_cpu_sample_us >= 1'000'000)
 		{

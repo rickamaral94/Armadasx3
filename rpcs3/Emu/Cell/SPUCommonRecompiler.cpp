@@ -1153,6 +1153,13 @@ void spu_cache::add(const spu_program& func)
 		return;
 	}
 
+	// Armadasx3: programs of the on-device SPU differential test (android/src/armadasx3_spu_difftest.cpp)
+	// start with this word. They are never a game's code and must not land in its SPU cache.
+	if (func.lower_bound == 0 && !func.data.empty() && std::bit_cast<be_t<u32>>(func.data[0]) == ((0x21u << 25) | (0x2D1F7u << 7) | 127u))
+	{
+		return;
+	}
+
 	be_t<u32> size = ::size32(func.data);
 	be_t<u32> addr = func.entry_point;
 

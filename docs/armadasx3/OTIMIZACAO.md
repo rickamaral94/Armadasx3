@@ -46,3 +46,24 @@ nosso diagnóstico.
   desempenho do projeto irmão (comentário em `android/CMakeLists.txt`).
 - Comparação: mesmo jogo, mesma cena, mesmo driver, A/B alternado, várias sessões; mediana do FPS e do
   p99 em jogo.
+
+## Teste diferencial da SPU (recompilador LLVM × interpretador)
+
+`android/src/armadasx3_spu_difftest.cpp`. Desligado por padrão. Para ligar, crie `driver_env.txt` na
+pasta de dados do emulador (a mesma que tem `config/` e `cache/`) com a linha `ARMSX3_SPU_DIFFTEST=1`
+(ou `=N` para N rodadas; `ARMSX3_SPU_DIFFTEST_SEED=<n>` muda a semente, fixa por padrão).
+
+- 15 s depois do primeiro quadro de qualquer jogo, uma thread pega um slot livre de SPU "raw" e roda
+  rodadas de 256 casos: carrega $2..$9 com valores aleatórios e especiais (LQA), executa 1–6
+  instruções aleatórias de 153 opcodes, grava os registradores (STQA) e para (STOP). O código passa
+  pelo caminho real (gateway, dispatcher, compilação, block size e XFloat do usuário). Depois o
+  interpretador C++ executa o mesmo programa na mesma thread parada, e os resultados são comparados.
+- A metade dos casos com uma instrução só identifica o opcode exato. A outra metade encadeia várias e
+  exercita o rastreamento de valores do recompilador.
+- Saída no log, canal `SPUDIFF`: `PASSED`/`FAILED`, divergências inteiras (bug do recompilador),
+  divergências de ponto flutuante (podem ser esperadas com XFloat abaixo de Accurate) e detalhes com
+  desmontagem e registradores. O programa de teste começa com uma palavra marcadora e nunca entra no
+  cache de SPU do jogo (`spu_cache::add`).
+- Limites: não testa desvios, canais, DMA nem instruções de parada; não sai do jogo durante o teste
+  (cerca de um minuto).
+- Ideia do teste diferencial da ScarletNX (`tests/llvm_differential.c`); nenhum código copiado (GPLv3).

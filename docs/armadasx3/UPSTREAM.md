@@ -51,10 +51,11 @@ Toda mudança em arquivo herdado entra aqui, com o motivo. Código novo fica em
 | `rpcs3/Emu/RSX/VK/FrameGen/FrameGenTypes.h` | Removido `#include "Config.h"` (arquivo inexistente) | No macOS resolvia por acaso para o `config.h` do wolfSSL; no Linux quebrava |
 | `rpcs3/Emu/CMakeLists.txt` | `IRD.cpp`, `IRD_validation.cpp` e `content_validation.cpp` só fora do Android | Dependem do leitor de ISO do RPCS3, que não usamos (veja abaixo) |
 | `rpcs3/Emu/Cell/lv2/sys_rsx.cpp` | `sys_rsx_context_attribute` 0x101 e `sys_rsx_attribute` 0x2/0x202 em nível trace | Fight Night Round 4 os chama a cada frame: 81% do log, que estourava o limite do pacote de diagnóstico e cortava o meio da sessão |
+| `rpcs3/Emu/Cell/SPUCommonRecompiler.cpp` | `spu_cache::add` ignora programas que começam com a palavra marcadora do teste diferencial | O teste não pode entrar no cache de SPU do jogo |
 | `rpcs3/Emu/RSX/Common/surface_store.h` | `invalidate_all()`: resíduo em `m_active_memory_used` vira log de erro + zera, em vez de `ensure()` | O `ensure` derrubava o app ao sair de Fight Night Round 4 (Odin 2 Portal, 2026-10-14). Só roda na destruição do renderer |
 | `Utilities/Thread.cpp` | `detect_cpu_layout()` registra a capacidade de cada núcleo; `get_affinity_mask()` só prende as SPUs ao cluster rápido se ele tiver 6 núcleos além do principal, senão usa todos menos o principal, e registra as máscaras | Com o Thread Scheduler "RPCS3 Alternative", Fight Night Round 4 caiu de ~45 para ~22 FPS no Odin 2 Portal: 6 SPUs em 4 núcleos |
 
-Fora do código herdado: `android/src/armadasx3_metrics.{h,cpp}`,
+Fora do código herdado: `android/src/armadasx3_metrics.{h,cpp}`, `android/src/armadasx3_spu_difftest.{h,cpp}`,
 `.github/workflows/armadasx3-android-{unit-tests,build}.yml`, `ARMADASX3.md` e `docs/armadasx3/`.
 
 Candidatas a enviar ao ARMSX3 como PR (corrigem o build fora do macOS e sem o SDK do Discord):
