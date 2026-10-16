@@ -1468,6 +1468,9 @@ class spu_llvm_recompiler : public spu_recompiler_base, public cpu_translator
 					return false;
 				}
 
+				// Armadasx3: the reservation time the waiters on this line are keyed by (see below).
+				u64 waiter_time = 0;
+
 				{
 					rsx::reservation_lock rsx_lock(raddr, 128);
 
@@ -1498,6 +1501,7 @@ class spu_llvm_recompiler : public spu_recompiler_base, public cpu_translator
 
 					// Success
 					res.release(old_res + 128);
+					waiter_time = old_res;
 				}
 
 				_spu->ch_atomic_stat.set_value(MFC_PUTLLC_SUCCESS);
@@ -1505,7 +1509,10 @@ class spu_llvm_recompiler : public spu_recompiler_base, public cpu_translator
 
 				if (notify)
 				{
-					res.notify_all();
+					// Armadasx3: wake the reservation waiters the way do_putllc does. They park on
+					// vm::reservation_notifier(addr, rtime), not on the counter word, so the old
+					// res.notify_all() woke nobody and waiters only recovered on their poll timeout.
+					vm::reservation_notifier_notify(raddr, waiter_time);
 				}
 
 				return true;
@@ -1589,7 +1596,14 @@ class spu_llvm_recompiler : public spu_recompiler_base, public cpu_translator
 
 			m_ir->CreateCondBr(compare_data_change_res, notify_block, notify_next);
 			m_ir->SetInsertPoint(notify_block);
-			call("atomic_wait_engine::notify_all", static_cast<void(*)(const void*)>(atomic_wait_engine::notify_all), rptr);
+			// Armadasx3: notify the reservation waiters of this line, keyed by (address, the time they
+			// reserved at) -- what do_putllc does. The old call notified the counter word itself, which
+			// nothing waits on, so a PUTLLC16 commit woke nobody (see SPUCommonRecompiler.cpp, the
+			// PUTLLC16 whitelist).
+			call("spu_putllc16_notify", +[](u32 addr, u64 rtime)
+			{
+				vm::reservation_notifier_notify(addr, rtime);
+			}, _eal, rval);
 			m_ir->CreateBr(notify_next);
 			m_ir->SetInsertPoint(notify_next);
 		}

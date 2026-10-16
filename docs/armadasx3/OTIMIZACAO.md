@@ -72,3 +72,14 @@ pasta de dados do emulador (a mesma que tem `config/` e `cache/`) com a linha `A
 Candidatos novos vindos do estudo de arquitetura (PUTLLC16 notificando a palavra errada, cache de
 objetos de SPU desligado no ARM64, tabela de reservas de 32 KB, espera com WFE, `lwsync`): veja a parte
 4 de [`ARQUITETURA-PS3.md`](ARQUITETURA-PS3.md).
+
+## Estado em 2026-10-16
+
+- **Feito:** notificação do PUTLLC16 corrigida (acorda quem espera na reserva, em vez de depender do
+  timeout); `ARMSX3_SPU_PROF=1` liga o SPU Profiler pelo `driver_env.txt`; totais de PUTLLC no log ao
+  fim de cada thread de SPU.
+- **Descartado por ora:** tabela de reservas maior (colisão depende de endereços específicos, sem
+  evidência; o RPCS3 usa o mesmo tamanho) e FREST/FRSQEST com `tbl` (tabelas de 128/256 bytes exigem
+  8+ `tbl` e mais pressão de registradores no LLVM ARM64, que já falha com TBL2; ganho marginal).
+- **Próximo:** decidir pelo profiler, não por suposição — percentual de tempo ocioso, em operações de
+  reserva e blocos mais quentes das SPUs em Fight Night Round 4.

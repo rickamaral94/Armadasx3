@@ -9497,7 +9497,8 @@ spu_program spu_recompiler_base::analyse(const be_t<u32>* ls, u32 entry_point, s
 				// match and simply keeps the old path. The sibling pattern at 0x17ff8 was also
 				// refused and is deliberately NOT listed: it has not been disassembled, and the
 				// safety condition here is a property of the code, not of the function's name.
-				// NOTE: PUTLLC16's success notify is aimed at the wrong address.
+				// NOTE: PUTLLC16's success notify WAS aimed at the wrong address. Fixed in Armadasx3
+				// (SPULLVMRecompiler.cpp, "spu_putllc16_notify"); the history is kept below.
 				//
 				// PUTLLC16's success path notifies on the RESERVATION COUNTER word
 				// (SPULLVMRecompiler.cpp:1464 passes rptr, built from reserv_base_addr =

@@ -2359,6 +2359,15 @@ game_boot_result Emulator::Load(const std::string& title_id, bool is_disc_patch,
 			// Disable incompatible settings
 			fixup_settings(&_psf);
 
+			// Armadasx3: ARMSX3_SPU_PROF=1 (driver_env.txt) turns the SPU profiler on for this boot, so a
+			// diagnostic run can say where SPU time goes -- idle, reservation operations, hottest blocks --
+			// without the user editing the YAML. Applied after every config layer so nothing overrides it.
+			if (const char* env = std::getenv("ARMSX3_SPU_PROF"); env && *env == '1')
+			{
+				g_cfg.core.spu_prof.set(true);
+				sys_log.success("ARMSX3_SPU_PROF: SPU profiler enabled for this boot");
+			}
+
 			// Force audio provider
 			if (m_path.ends_with("vsh.self"sv))
 			{
