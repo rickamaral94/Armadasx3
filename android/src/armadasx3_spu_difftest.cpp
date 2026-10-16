@@ -512,7 +512,8 @@ namespace armadasx3::spu_difftest
 
 			if (!env || !*env || *env == '0')
 			{
-				g_state = 2;
+				// Not "disabled for good": driver_env.txt is re-read at every boot, so the switch can
+				// appear later in the same process. One getenv per frame costs nothing.
 				return;
 			}
 

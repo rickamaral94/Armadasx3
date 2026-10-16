@@ -4002,7 +4002,45 @@ extern "C" void _rpcsx_shutdown() {
   stop_session();
 }
 
+// Armadasx3: re-read the ARMSX3_* switches from driver_env.txt at every game boot. The file is
+// otherwise read once per process, at initialisation, so a file copied in while the app sat in the
+// background was ignored until the app was force-stopped -- which is how a whole diagnostic session
+// ran without the switches it was meant to test. Only ARMSX3_* names: Mesa options must stay as
+// they were when Vulkan first read them.
+static void armadasx3_reload_driver_env() {
+  for (const std::string& path : {g_android_executable_dir + "driver_env.txt",
+                                  g_android_config_dir + "driver_env.txt",
+                                  std::string("/sdcard/Android/data/com.armsx3/files/driver_env.txt")}) {
+    std::ifstream env_file(path);
+    if (!env_file.is_open()) {
+      continue;
+    }
+
+    std::string line;
+    while (std::getline(env_file, line)) {
+      const auto eq = line.find('=');
+      if (eq == std::string::npos || !line.starts_with("ARMSX3_")) {
+        continue;
+      }
+
+      const std::string name = line.substr(0, eq);
+      std::string value = line.substr(eq + 1);
+      while (!value.empty() && (value.back() == '\r' || value.back() == ' ')) {
+        value.pop_back();
+      }
+
+      if (const char* old = getenv(name.c_str()); !old || value != old) {
+        setenv(name.c_str(), value.c_str(), 1);
+        rpcsx_android.warning("driver_env (boot): %s=%s", name, value);
+      }
+    }
+
+    return;
+  }
+}
+
 extern "C" int _rpcsx_boot(std::string_view path_) {
+  armadasx3_reload_driver_env();
   // Taken FIRST, before the Kill below, and held across the whole boot.
   //
   // Emu.Kill() spawns an "Emulation Join Thread" that joins every emulator thread. It is

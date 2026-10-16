@@ -83,3 +83,8 @@ objetos de SPU desligado no ARM64, tabela de reservas de 32 KB, espera com WFE, 
   8+ `tbl` e mais pressão de registradores no LLVM ARM64, que já falha com TBL2; ganho marginal).
 - **Próximo:** decidir pelo profiler, não por suposição — percentual de tempo ocioso, em operações de
   reserva e blocos mais quentes das SPUs em Fight Night Round 4.
+
+- **Medido (FNR4, 2026-10-16):** com Accurate SPU Reservations off, ~4,8 mil PUTLLC/s por SPU, 97,5%
+  mudando dados e **nenhum** pelo `vm::writer_lock` — todos no caminho de 16 bytes. As operações
+  atômicas deixaram de ser o gargalo; o custo restante está no código das SPUs e nas esperas. Próxima
+  decisão depende do SPU Profiler.
