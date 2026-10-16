@@ -23,6 +23,8 @@ Nenhum resultado de compatibilidade ou desempenho é afirmado sem teste. Veja a 
 | [`docs/armadasx3/DIAGNOSTICO.md`](docs/armadasx3/DIAGNOSTICO.md) | "Exportar diagnóstico da sessão" e esquema do `report.json` |
 | [`docs/armadasx3/COMPATIBILIDADE.md`](docs/armadasx3/COMPATIBILIDADE.md) | Estados, protocolo de teste e matriz por jogo |
 | [`docs/armadasx3/UPSTREAM.md`](docs/armadasx3/UPSTREAM.md) | Sincronização com ARMSX3/RPCS3 e lista de divergências locais |
+| [`docs/armadasx3/ARQUITETURA-PS3.md`](docs/armadasx3/ARQUITETURA-PS3.md) | Hardware do PS3 (Cell, SPU, MFC, RSX), histórico do RPCS3 e mapa para o código |
+| [`docs/armadasx3/OTIMIZACAO.md`](docs/armadasx3/OTIMIZACAO.md) | Plano de otimização de CPU no Odin 2 Portal e teste diferencial da SPU |
 | [`docs/armadasx3/BUILD.md`](docs/armadasx3/BUILD.md) | Build reproduzível em Linux (versões fixadas, passo a passo) |
 | [`docs/armadasx3/VALIDACAO-ODIN2.md`](docs/armadasx3/VALIDACAO-ODIN2.md) | Roteiro de validação no aparelho |
 

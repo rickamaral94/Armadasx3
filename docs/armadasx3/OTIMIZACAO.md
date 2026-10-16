@@ -23,7 +23,7 @@ estão na `COMPATIBILIDADE.md`; o resto é estimativa e está marcado como tal.
 | 3 | FREST/FRSQEST/FI: tabela por lane (4× extract/load/insert) → `tbl` NEON | `SPULLVMRecompiler.cpp` ~8672, 8709, 9752, 9783 | 1–5% do tempo de SPU em jogos com muita matemática | nenhum (resultado idêntico) |
 | 4 | Esperas: timeouts de 50/200/100 µs ajustáveis; no Android, futex direto em vez do motor emulado (`has_waitv()` é falso) | `SPUThread.cpp` ~7339, 7320, 5754; `util/atomic.cpp` | 2–8% se as SPUs passam muito tempo esperando | baixo |
 | 5 | PUTLLC que muda mais de 16 bytes ainda pega o lock completo | `SPUThread.cpp` ~4703 | 0–6% | alto (atomicidade entre blocos) |
-| 6 | `init_arm_timer_scale()` não é chamado no Android | `rpcs3/rpcs3.cpp:717` | pequeno | nenhum |
+| 6 | ~~`init_arm_timer_scale()` não é chamado no Android~~ — **descartado**: a escala do RPCS3 #18055 já está embutida em `busy_wait` (`cycles/100`); a 19,2 MHz a função daria 0 e manteria a escala 1 | `rpcs3/util/asm.hpp` | nenhum | — |
 | 7 | Reteste isolado de SPU Block Size Mega | configuração | ? | depende do jogo |
 
 Do fork do Cemu (`rickamaral94/Cemu-Fork-Amaral`) não há otimização de CPU a portar: ele não mexeu em
@@ -67,3 +67,8 @@ pasta de dados do emulador (a mesma que tem `config/` e `cache/`) com a linha `A
 - Limites: não testa desvios, canais, DMA nem instruções de parada; não sai do jogo durante o teste
   (cerca de um minuto).
 - Ideia do teste diferencial da ScarletNX (`tests/llvm_differential.c`); nenhum código copiado (GPLv3).
+
+
+Candidatos novos vindos do estudo de arquitetura (PUTLLC16 notificando a palavra errada, cache de
+objetos de SPU desligado no ARM64, tabela de reservas de 32 KB, espera com WFE, `lwsync`): veja a parte
+4 de [`ARQUITETURA-PS3.md`](ARQUITETURA-PS3.md).
