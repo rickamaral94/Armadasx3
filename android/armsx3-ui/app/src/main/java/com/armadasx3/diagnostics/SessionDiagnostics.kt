@@ -224,7 +224,7 @@ object SessionDiagnostics {
             if (serial != null) {
                 file("config/custom_configs/config_$serial.yml", "game_config", File(root, "config/custom_configs/config_$serial.yml"))
             }
-            file("config/driver_env.txt", "driver_config", File(root, "driver_env.txt"))
+            file("config/driver_env.txt", "driver_config", File(root, "driver_env.txt").takeIf { it.isFile } ?: File(root, "config/driver_env.txt"))
             // Only a PGO-instrumented core (-DARMSX3_PGO=generate) writes these: per-function
             // execution counters, flushed when the app goes to the background. No paths, no game
             // data -- they feed the next optimised build. Newest first, a few at most.

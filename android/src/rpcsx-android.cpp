@@ -3681,6 +3681,11 @@ extern "C" bool _rpcsx_initialize(std::string_view rootDir,
   // external app dir (/sdcard/Android/data/<pkg>/files) is writable over plain adb by anyone,
   // which is what makes a driver experiment possible on a device that is not rooted.
   std::string env_path = g_android_executable_dir + "driver_env.txt";
+  // Armadasx3: also <root>/config/driver_env.txt, the folder people open first when told "the
+  // emulator's data folder"; a file put there was silently ignored.
+  if (!fs::is_file(env_path) && fs::is_file(g_android_config_dir + "driver_env.txt")) {
+    env_path = g_android_config_dir + "driver_env.txt";
+  }
   if (!fs::is_file(env_path)) {
     if (const std::string ext = "/sdcard/Android/data/com.armsx3/files/driver_env.txt";
         fs::is_file(ext)) {

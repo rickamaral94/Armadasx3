@@ -1850,8 +1850,8 @@ void spu_thread::cpu_task()
 		// Armadasx3: the conditional-store totals, so a diagnostic report can tell whether a title's
 		// atomics take the 16-byte path or the full barrier with the user's reservation setting. Only
 		// the long waits were logged before, which says nothing once they stop.
-		(!group || group->stop_count < 5 ? spu_log.notice : spu_log.trace)("Stats: PUTLLC %u (failed %u, past the fast paths %u, on SPURS block %u, notified %u)",
-			putllc_calls, putllc_fails, putllc_barrier, putllc_barrier_spurs, putllc_notify);
+		(!group || group->stop_count < 5 ? spu_log.notice : spu_log.trace)("Stats: PUTLLC %u (failed %u, past the fast paths %u, of which full lock %u, on SPURS block %u, notified %u)",
+			putllc_calls, putllc_fails, putllc_barrier, putllc_full_lock, putllc_barrier_spurs, putllc_notify);
 	}
 	else
 	{
@@ -4706,6 +4706,7 @@ bool spu_thread::do_putllc(const spu_mfc_cmd& args)
 
 			// Full lock (heavyweight)
 			// TODO: vm::check_addr
+			putllc_full_lock++;
 			vm::writer_lock lock(addr, range_lock);
 
 			if (cmp_rdata(rdata, super_data))

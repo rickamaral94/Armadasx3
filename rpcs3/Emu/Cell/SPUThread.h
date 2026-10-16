@@ -828,6 +828,7 @@ public:
 	u64 putllc_fails = 0;
 	u64 putllc_barrier = 0; // conditional stores that reached the heavyweight vm::writer_lock
 	u64 putllc_barrier_spurs = 0; // ...of those, ones on this thread's own SPURS control block
+	u64 putllc_full_lock = 0; // ...of those, ones that took vm::writer_lock (not the 16-byte path)
 
 	u64 putllc_notify = 0;
 	u64 putllc_suppressed = 0; // SPURS heuristic decided the waiters did not need waking
