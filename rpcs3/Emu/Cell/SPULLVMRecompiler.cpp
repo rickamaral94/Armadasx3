@@ -20,6 +20,7 @@ bool spu_is_killzone3(); // SPUThread.cpp
 #include "SPUInterpreter.h"
 #include <algorithm>
 #include <thread>
+#include <optional>
 
 #include "util/v128.hpp"
 #include "util/simd.hpp"
@@ -232,6 +233,12 @@ class spu_llvm_recompiler : public spu_recompiler_base, public cpu_translator
 
 	// Main entry point offset
 	u32 m_base = 0;
+
+	// Armadasx3: the guest words being compiled and the start of the current basic block, so an
+	// instruction handler can look back within its own block (see match_u64_compare_idiom).
+	const u32* m_cur_data = nullptr;
+	u32 m_cur_start = 0;
+	u32 m_cur_baddr = 0;
 
 	// Module name
 	std::string m_hash;
@@ -2012,6 +2019,9 @@ public:
 		const u32 start = m_pos;
 		const u32 end = start + m_size;
 
+		m_cur_data = func.data.data();
+		m_cur_start = start;
+
 		m_pp_id = 0;
 
 		std::string function_log;
@@ -2861,6 +2871,7 @@ public:
 			{
 				// Initialize basic block info
 				const u32 baddr = m_block_queue[bi];
+				m_cur_baddr = baddr;
 				m_block = &m_blocks[baddr];
 				m_ir->SetInsertPoint(m_block->block);
 				auto& bb = ::at32(m_bbs, baddr);
@@ -8064,8 +8075,178 @@ public:
 		set_vr(op.rt4, (get_vr(op.rb) & c) | (get_vr(op.ra) & ~c));
 	}
 
+	// Armadasx3: the SPU has no 64-bit compare, and GCC's SPU backend spells an unsigned 64-bit
+	// "a > b" per doubleword as
+	//
+	//     clgt  C, a, b        ; per-word a > b
+	//     ceq   E, a, b        ; per-word a == b
+	//     rotqbyi R, C, 4      ; low-word result moved under the high word
+	//     and   D, R, E        ; high words equal and low word greater
+	//     or    X, D, C        ; high word greater, or the above
+	//     shufb Y, X, X, M     ; M spreads the high word's verdict over the doubleword
+	//
+	// which ARM64 does in one CMHI .2D. Fight Night Round 4 spends 45% of its SPU time in a loop
+	// built around exactly this (a minimum search, LS 0x3fd00). Matched on the guest words of the
+	// current block only, each operand at its latest definition before its use; when anything does
+	// not fit, the normal lowering runs. ARMSX3_NO_U64CMP_IDIOM=1 turns it off for an A/B.
+	//
+	// Returns the a and b registers on a match.
+	std::optional<std::pair<u32, u32>> match_u64_compare_idiom(spu_opcode_t op, const v128& mask)
+	{
+		static const bool s_disabled = []
+		{
+			const char* v = std::getenv("ARMSX3_NO_U64CMP_IDIOM");
+			return v && v[0] == '1';
+		}();
+
+		if (s_disabled || !m_cur_data || op.ra != op.rb || m_pos < m_cur_baddr)
+		{
+			return std::nullopt;
+		}
+
+		// Host order: guest doubleword 0 (bytes 0-7) is _u64[1], doubleword 1 is _u64[0]. Every byte
+		// must select a byte of the high word of the same doubleword, from either operand (both are X).
+		for (u32 i = 0; i < 16; i++)
+		{
+			const u8 v = mask._u8[i];
+			const u32 guest_byte = 15 - i;
+			const u32 hi_word_base = guest_byte < 8 ? 0 : 8;
+
+			// 10xxxxxx/11xxxxxx are the constant-producing control bytes; otherwise the low five bits
+			// index ra||rb (both X here), and bits 0-3 must land in this doubleword's high word.
+			if ((v & 0xc0) || ((v & 0x0fu) & ~3u) != hi_word_base)
+			{
+				return std::nullopt;
+			}
+		}
+
+		const auto word_at = [&](u32 pos) -> spu_opcode_t
+		{
+			return spu_opcode_t{std::bit_cast<be_t<u32>>(m_cur_data[(pos - m_cur_start) / 4])};
+		};
+
+		// Latest instruction in this block before 'before' that writes 'reg'.
+		const auto def_of = [&](u32 reg, u32 before) -> u32
+		{
+			for (u32 p = before; p > m_cur_baddr;)
+			{
+				p -= 4;
+
+				if (m_regmod[p / 4] == reg)
+				{
+					return p;
+				}
+			}
+
+			return umax;
+		};
+
+		// No instruction in [from, to) writes 'reg'.
+		const auto untouched = [&](u32 reg, u32 from, u32 to)
+		{
+			for (u32 p = from; p < to; p += 4)
+			{
+				if (m_regmod[p / 4] == reg)
+				{
+					return false;
+				}
+			}
+
+			return true;
+		};
+
+		const auto is = [&](u32 pos, spu_itype::type t)
+		{
+			return pos != umax && g_spu_itype.decode(word_at(pos).opcode) == t;
+		};
+
+		const u32 x_pos = def_of(op.ra, m_pos);
+
+		if (!is(x_pos, spu_itype::OR))
+		{
+			return std::nullopt;
+		}
+
+		const auto x_op = word_at(x_pos);
+
+		// or X, D, C (either order)
+		for (const auto [d_reg, c_reg] : {std::pair<u32, u32>{x_op.ra, x_op.rb}, std::pair<u32, u32>{x_op.rb, x_op.ra}})
+		{
+			const u32 c_pos = def_of(c_reg, x_pos);
+			const u32 d_pos = def_of(d_reg, x_pos);
+
+			if (!is(c_pos, spu_itype::CLGT) || !is(d_pos, spu_itype::AND))
+			{
+				continue;
+			}
+
+			const auto c_op = word_at(c_pos);
+			const auto d_op = word_at(d_pos);
+			const u32 a_reg = c_op.ra;
+			const u32 b_reg = c_op.rb;
+
+			if (a_reg == b_reg || c_reg == a_reg || c_reg == b_reg)
+			{
+				continue;
+			}
+
+			// and D, R, E (either order)
+			for (const auto [r_reg, e_reg] : {std::pair<u32, u32>{d_op.ra, d_op.rb}, std::pair<u32, u32>{d_op.rb, d_op.ra}})
+			{
+				const u32 r_pos = def_of(r_reg, d_pos);
+				const u32 e_pos = def_of(e_reg, d_pos);
+
+				if (!is(r_pos, spu_itype::ROTQBYI) || !is(e_pos, spu_itype::CEQ))
+				{
+					continue;
+				}
+
+				const auto r_op = word_at(r_pos);
+				const auto e_op = word_at(e_pos);
+
+				// rotqbyi R, C, 4 reading the same C
+				if ((r_op.i7 & 0xf) != 4 || r_op.ra != c_reg || def_of(c_reg, r_pos) != c_pos)
+				{
+					continue;
+				}
+
+				// ceq E, a, b (either order)
+				if (!((e_op.ra == a_reg && e_op.rb == b_reg) || (e_op.ra == b_reg && e_op.rb == a_reg)))
+				{
+					continue;
+				}
+
+				// a and b hold the same values at the clgt, the ceq and here.
+				const u32 first = std::min(c_pos, e_pos);
+
+				if (!untouched(a_reg, first + 4, m_pos) || !untouched(b_reg, first + 4, m_pos))
+				{
+					continue;
+				}
+
+				return std::pair<u32, u32>{a_reg, b_reg};
+			}
+		}
+
+		return std::nullopt;
+	}
+
 	void SHUFB(spu_opcode_t op) //
 	{
+		if (op.ra == op.rb)
+		{
+			if (auto [ok, mask] = get_const_vector(get_vr<u8[16]>(op.rc).value, m_pos); ok)
+			{
+				if (const auto ab = match_u64_compare_idiom(op, mask))
+				{
+					const auto a = get_reg_fixed<u64[2]>(ab->first);
+					const auto b = get_reg_fixed<u64[2]>(ab->second);
+					set_vr(op.rt4, sext<s64[2]>(a > b));
+					return;
+				}
+			}
+		}
+
 		if (match_vr<u8[16], u16[8], u32[4], u64[2]>(op.rc, [&](auto c, auto MP)
 		{
 			using VT = typename decltype(MP)::type;

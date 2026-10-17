@@ -177,7 +177,8 @@ namespace
 	{
 		u32 code_addr; // first random instruction
 		u32 count;     // number of random instructions
-		std::array<u16, 6> ops;
+		std::array<u16, 8> ops;
+		bool idiom = false; // the GCC 64-bit compare sequence, not random instructions
 	};
 
 	struct round_program
@@ -212,7 +213,46 @@ namespace
 			info.code_addr = code_base + static_cast<u32>(p.words.size()) * 4;
 			info.count = c < cases_per_round / 2 ? 1 : 2 + rng() % 5;
 
-			for (u32 i = 0; i < info.count; i++)
+			// A quarter of the chained cases are the GCC unsigned 64-bit compare sequence, which the
+			// recompiler folds into one 64-bit compare (match_u64_compare_idiom). Half of those copy
+			// a's high words into b, so the low-word half of the compare decides too.
+			if (c >= cases_per_round / 2 && rng() % 4 == 0)
+			{
+				const u32 a = 2 + rng() % 4;
+				u32 b = 2 + rng() % 4;
+				if (b == a) b = 2 + (a - 2 + 1) % 4;
+
+				if (rng() % 2)
+				{
+					const u32 a_addr = init_base + c * case_stride + (a - first_reg) * 16;
+					const u32 b_addr = init_base + c * case_stride + (b - first_reg) * 16;
+					std::memcpy(ls + b_addr, ls + a_addr, 4);
+					std::memcpy(ls + b_addr + 8, ls + a_addr + 8, 4);
+				}
+
+				info.idiom = true;
+				info.count = 8;
+				const u32 words[8] =
+				{
+					0x83u << 23 | (0x0808u << 7) | 9,                   // ilh r9, 0x0808
+					0x1fdu << 21 | (0x78u << 14) | (9u << 7) | 9,       // rotqmbyi r9, r9, -8
+					0x2c0u << 21 | (b << 14) | (a << 7) | 6,             // clgt r6, a, b
+					0x3c0u << 21 | (b << 14) | (a << 7) | 7,             // ceq r7, a, b
+					0x1fcu << 21 | (4u << 14) | (6u << 7) | 8,           // rotqbyi r8, r6, 4
+					0x0c1u << 21 | (7u << 14) | (8u << 7) | 8,           // and r8, r8, r7
+					0x041u << 21 | (6u << 14) | (8u << 7) | 8,           // or r8, r8, r6
+					0xbu << 28 | (8u << 21) | (8u << 14) | (8u << 7) | 9 // shufb r8, r8, r8, r9
+				};
+
+				for (u32 w : words)
+				{
+					p.words.push_back(w);
+				}
+
+				info.ops = {};
+			}
+
+			for (u32 i = 0; i < info.count && !info.idiom; i++)
 			{
 				const u32 idx = rng() % op_count;
 				info.ops[i] = static_cast<u16>(idx);
@@ -353,7 +393,7 @@ namespace
 
 		std::mt19937 rng(seed);
 		std::array<op_stats, op_count> stats{};
-		u32 total_cases = 0, int_fail = 0, fp_fail = 0, details = 0, aborted_rounds = 0;
+		u32 total_cases = 0, int_fail = 0, fp_fail = 0, details = 0, aborted_rounds = 0, idiom_cases = 0, idiom_fail = 0;
 		std::vector<u8> jit_result(area_size);
 
 		diff_log.success("SPU differential test: %u round(s) x %u cases, seed %u, %u opcodes, XFloat %s, block size %s",
@@ -416,9 +456,15 @@ namespace
 				const bool same = std::memcmp(jit_result.data() + off, ls + result_base + off, case_stride) == 0;
 
 				bool any_fp = false;
-				for (u32 i = 0; i < info.count; i++)
+				for (u32 i = 0; i < info.count && !info.idiom; i++)
 				{
 					any_fp |= g_ops[info.ops[i]].fp;
+				}
+
+				if (info.idiom)
+				{
+					idiom_cases++;
+					idiom_fail += same ? 0 : 1;
 				}
 
 				if (info.count == 1)
@@ -480,6 +526,7 @@ namespace
 		(pass ? diff_log.success : diff_log.error)("SPU differential test %s: %u cases, %u integer mismatches, %u float mismatches, %u aborted round(s)",
 			pass ? "PASSED" : "FAILED", total_cases, int_fail, fp_fail, aborted_rounds);
 		diff_log.notice("Single-instruction failures, integer:%s", bad_int.empty() ? " none" : bad_int);
+		(idiom_fail ? diff_log.error : diff_log.notice)("64-bit compare idiom cases: %u, mismatches: %u", idiom_cases, idiom_fail);
 		diff_log.notice("Single-instruction failures, float:%s", bad_fp.empty() ? " none" : bad_fp);
 		diff_log.notice("Opcodes not drawn as a single instruction this run:%s", untested.empty() ? " none" : untested);
 
