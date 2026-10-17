@@ -55,7 +55,7 @@ pasta de dados do emulador (a mesma que tem `config/` e `cache/`) com a linha `A
 
 - 15 s depois do primeiro quadro de qualquer jogo, uma thread pega um slot livre de SPU "raw" e roda
   rodadas de 256 casos: carrega $2..$9 com valores aleatórios e especiais (LQA), executa 1–6
-  instruções aleatórias de 153 opcodes, grava os registradores (STQA) e para (STOP). O código passa
+  instruções aleatórias de 148 opcodes, grava os registradores (STQA) e para (STOP). O código passa
   pelo caminho real (gateway, dispatcher, compilação, block size e XFloat do usuário). Depois o
   interpretador C++ executa o mesmo programa na mesma thread parada, e os resultados são comparados.
 - A metade dos casos com uma instrução só identifica o opcode exato. A outra metade encadeia várias e
@@ -88,3 +88,14 @@ objetos de SPU desligado no ARM64, tabela de reservas de 32 KB, espera com WFE, 
   mudando dados e **nenhum** pelo `vm::writer_lock` — todos no caminho de 16 bytes. As operações
   atômicas deixaram de ser o gargalo; o custo restante está no código das SPUs e nas esperas. Próxima
   decisão depende do SPU Profiler.
+
+- **SPU Profiler, FNR4 (2026-10-17, ~22 min):** SPUs 0,65% ociosas; 46% das amostras com reserva
+  ativa; **45,4% numa única função (LS 0x3fd00, laço principal do Job Manager)**, 10,6% na 0x3f928,
+  6,7% verificando código antes de executar, 6,5% fora do código compilado. Leitura: as seis SPUs giram
+  na fila de jobs em vez de dormir, tomando núcleo da PPU e da RSX. Próximos passos: (1) desmontar o
+  laço (`ARMSX3_PUTLLC_SITES=1`); (2) A/B de Preferred SPU Threads (2 e 3), que limita quantas SPUs
+  executam o mesmo comando de MFC ao mesmo tempo; (3) se o laço for espera pura, detectar o padrão e
+  dormir no evento de reserva em vez de girar.
+- O primeiro teste diferencial no aparelho caiu em DFCMGT, que o Cell do PS3 não tem e o recompilador
+  trata como armadilha sem retorno: 120 s girando e 4 GB de log. Retiradas DFCGT, DFCEQ, DFCMGT, DFCMEQ
+  e DFTSV; o tempo limite caiu para 30 s e a SPU é parada no estouro.

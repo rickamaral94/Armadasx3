@@ -106,14 +106,17 @@ namespace
 		{"SELB", form::rrr, 0x8, false}, {"SHUFB", form::rrr, 0xb, false}, {"MPYA", form::rrr, 0xc, false},
 
 		// Single and double precision: reported apart, since XFloat Approximate/Relaxed may differ.
-		{"FCGT", form::rr, 0x2c2, true}, {"DFCGT", form::rr, 0x2c3, true}, {"FA", form::rr, 0x2c4, true},
+		// Not here: DFCGT, DFCEQ, DFCMGT, DFCMEQ, DFTSV. The PS3's Cell does not have them, and the
+		// recompiler emits them as an unknown-instruction trap that never returns -- the first run on
+		// device spun on one for the whole timeout and wrote 4 GB of log.
+		{"FCGT", form::rr, 0x2c2, true}, {"FA", form::rr, 0x2c4, true},
 		{"FS", form::rr, 0x2c5, true}, {"FM", form::rr, 0x2c6, true}, {"FCMGT", form::rr, 0x2ca, true},
-		{"DFCMGT", form::rr, 0x2cb, true}, {"DFA", form::rr, 0x2cc, true}, {"DFS", form::rr, 0x2cd, true},
+		{"DFA", form::rr, 0x2cc, true}, {"DFS", form::rr, 0x2cd, true},
 		{"DFM", form::rr, 0x2ce, true}, {"DFMA", form::rr, 0x35c, true}, {"DFMS", form::rr, 0x35d, true},
 		{"DFNMS", form::rr, 0x35e, true}, {"DFNMA", form::rr, 0x35f, true}, {"FESD", form::rr, 0x3b8, true},
-		{"FRDS", form::rr, 0x3b9, true}, {"FCEQ", form::rr, 0x3c2, true}, {"DFCEQ", form::rr, 0x3c3, true},
-		{"FCMEQ", form::rr, 0x3ca, true}, {"DFCMEQ", form::rr, 0x3cb, true}, {"FI", form::rr, 0x3d4, true},
-		{"FREST", form::rr, 0x1b8, true}, {"FRSQEST", form::rr, 0x1b9, true}, {"DFTSV", form::ri7, 0x3bf, true},
+		{"FRDS", form::rr, 0x3b9, true}, {"FCEQ", form::rr, 0x3c2, true}, 
+		{"FCMEQ", form::rr, 0x3ca, true}, {"FI", form::rr, 0x3d4, true},
+		{"FREST", form::rr, 0x1b8, true}, {"FRSQEST", form::rr, 0x1b9, true}, 
 		{"CFLTS", form::ri8, 0x1d8, true}, {"CFLTU", form::ri8, 0x1d9, true}, {"CSFLT", form::ri8, 0x1da, true},
 		{"CUFLT", form::ri8, 0x1db, true}, {"FNMS", form::rrr, 0xd, true}, {"FMA", form::rrr, 0xe, true},
 		{"FMS", form::rrr, 0xf, true},
@@ -364,9 +367,11 @@ namespace
 			// 1. The recompiler, through the gateway, on the SPU thread.
 			start(*spu, code_base);
 
-			if (!wait_stopped(*spu, std::chrono::seconds(120)))
+			if (!wait_stopped(*spu, std::chrono::seconds(30)))
 			{
-				diff_log.error("Round %u: the recompiled program did not reach STOP in 120 s; test aborted", round);
+				// Stop it now: a program stuck on a trap keeps logging until the thread is told to stop.
+				spu->state += cpu_flag::stop + cpu_flag::ret;
+				diff_log.error("Round %u: the recompiled program did not reach STOP in 30 s; test aborted", round);
 				aborted_rounds++;
 				break;
 			}
