@@ -55,6 +55,7 @@ Toda mudança em arquivo herdado entra aqui, com o motivo. Código novo fica em
 | `rpcs3/Emu/Cell/SPULLVMRecompiler.cpp` | PUTLLC16 (JIT e auxiliar `spu_putllc16_rsx_res`) notifica com `vm::reservation_notifier_notify(addr, rtime)`, como `do_putllc` | O aviso ia para a palavra do contador, onde ninguém espera; as SPUs só acordavam no timeout de 50–200 µs |
 | `rpcs3/Emu/System.cpp` | `ARMSX3_SPU_PROF=1` liga o SPU Profiler no boot | Medir onde as SPUs gastam tempo no aparelho sem editar o YAML |
 | `rpcs3/Emu/Cell/SPUThread.cpp` | Linha de estatística de PUTLLC no fim de cada thread de SPU | Saber se os atômicos do jogo pegam o caminho de 16 bytes ou a barreira completa |
+| `rpcs3/Emu/Cell/lv2/sys_ppu_thread.cpp` | `ARMSX3_PPU_YIELD_BACKOFF`: dormir após uma sequência de `sys_ppu_thread_yield` sem efeito (desligado por padrão) | FNR4 faz ~690 mil yields/s, espera ocupada que toma núcleo das SPUs |
 | `rpcs3/Emu/RSX/Common/surface_store.h` | `invalidate_all()`: resíduo em `m_active_memory_used` vira log de erro + zera, em vez de `ensure()` | O `ensure` derrubava o app ao sair de Fight Night Round 4 (Odin 2 Portal, 2026-10-14). Só roda na destruição do renderer |
 | `Utilities/Thread.cpp` | `detect_cpu_layout()` registra a capacidade de cada núcleo; `get_affinity_mask()` só prende as SPUs ao cluster rápido se ele tiver 6 núcleos além do principal, senão usa todos menos o principal, e registra as máscaras | Com o Thread Scheduler "RPCS3 Alternative", Fight Night Round 4 caiu de ~45 para ~22 FPS no Odin 2 Portal: 6 SPUs em 4 núcleos |
 

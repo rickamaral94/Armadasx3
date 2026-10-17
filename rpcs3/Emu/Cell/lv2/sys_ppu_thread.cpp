@@ -174,6 +174,34 @@ s32 sys_ppu_thread_yield(ppu_thread& ppu)
 	{
 		// Do other work in the meantime
 		lv2_obj::notify_all();
+
+		// Armadasx3: ARMSX3_PPU_YIELD_BACKOFF=<us> (driver_env.txt, off by default). With no other PPU
+		// thread to run, yield returns at once and a guest polling loop becomes a pure busy spin: Fight
+		// Night Round 4 made ~690,000 of these calls a second on the Odin 2 Portal. On a PS3 that only
+		// cost the PPU its own core; here it takes a host core from the SPU and RSX threads. After a
+		// streak of consecutive no-op yields the thread sleeps this long instead. The streak resets after
+		// a gap, so a thread that yields now and then is untouched. Kept off until measured.
+		static const u64 s_backoff_us = []
+		{
+			const char* v = std::getenv("ARMSX3_PPU_YIELD_BACKOFF");
+			return v ? std::strtoull(v, nullptr, 10) : 0ull;
+		}();
+
+		if (s_backoff_us)
+		{
+			thread_local u32 s_streak = 0;
+			thread_local u64 s_last_us = 0;
+			const u64 now = get_system_time();
+
+			s_streak = now - s_last_us > 1000 ? 1 : s_streak + 1;
+			s_last_us = now;
+
+			if (s_streak > 64)
+			{
+				thread_ctrl::wait_for(s_backoff_us);
+				s_last_us = get_system_time();
+			}
+		}
 	}
 
 	// Return 0 on successful context switch, 1 otherwise

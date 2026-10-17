@@ -1847,6 +1847,39 @@ void spu_thread::cpu_task()
 		// Print some stats
 		(!group || group->stop_count < 5 ? spu_log.notice : spu_log.trace)("Stats: Block Weight: %u (Retreats: %u);", block_counter, block_failure);
 
+		// Armadasx3: ARMSX3_SPU_DISASM=<start>-<end> (hex local-store addresses, driver_env.txt) logs the
+		// disassembly of that range once, from the first SPU thread to stop, so a profiler hot block --
+		// known only by its entry address -- can be read. Capped at 4 KB.
+		if (const char* range = std::getenv("ARMSX3_SPU_DISASM"))
+		{
+			static atomic_t<bool> s_dumped = false;
+			u32 lo = 0, hi = 0;
+
+			if (std::sscanf(range, "%x-%x", &lo, &hi) == 2 && lo < hi && hi <= SPU_LS_SIZE && !s_dumped.exchange(true))
+			{
+				lo &= -4;
+				hi = std::min<u32>(hi, lo + 0x1000);
+
+				SPUDisAsm dis_asm(cpu_disasm_mode::normal, ls, 0);
+				std::string body;
+
+				for (u32 i = lo; i < hi; i += 4)
+				{
+					dis_asm.disasm(i);
+					std::string_view op = dis_asm.last_opcode;
+
+					while (!op.empty() && (op.back() == '\n' || op.back() == ' ' || op.back() == '\t'))
+					{
+						op.remove_suffix(1);
+					}
+
+					fmt::append(body, "\n    0x%05x  %s", i, op);
+				}
+
+				spu_log.success("ARMSX3_SPU_DISASM 0x%05x-0x%05x (%s):%s", lo, hi, get_name(), body);
+			}
+		}
+
 		// Armadasx3: the conditional-store totals, so a diagnostic report can tell whether a title's
 		// atomics take the 16-byte path or the full barrier with the user's reservation setting. Only
 		// the long waits were logged before, which says nothing once they stop.

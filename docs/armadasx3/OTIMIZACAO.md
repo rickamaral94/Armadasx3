@@ -99,3 +99,13 @@ objetos de SPU desligado no ARM64, tabela de reservas de 32 KB, espera com WFE, 
 - O primeiro teste diferencial no aparelho caiu em DFCMGT, que o Cell do PS3 não tem e o recompilador
   trata como armadilha sem retorno: 120 s girando e 4 GB de log. Retiradas DFCGT, DFCEQ, DFCMGT, DFCMEQ
   e DFTSV; o tempo limite caiu para 30 s e a SPU é parada no estouro.
+
+- **2026-10-17, primeira sessão no ARMSX3 1.2:** teste diferencial **PASSOU** — 2048 casos, 0
+  divergências inteiras (374 de ponto flutuante, esperadas com XFloat Approximate). Os laços de PUTLLC
+  mais quentes das SPUs são decremento atômico de uma word (0x04cb0, 0x05e50, 0x3fa28) e CAS de 64 bits
+  (0x3f980): operações reais, uma word por vez, todas no caminho de 16 bytes. A PPU chamou
+  `sys_ppu_thread_yield` ~166 milhões de vezes em ~4 min (~690 mil/s): espera ocupada da PPU, que no
+  host toma um núcleo das SPUs/RSX.
+- **Novos interruptores (desligados por padrão):** `ARMSX3_PPU_YIELD_BACKOFF=<µs>` faz a thread dormir
+  após 64 yields seguidos sem efeito; `ARMSX3_SPU_DISASM=<ini>-<fim>` registra a desmontagem de uma faixa
+  da LS (para ler a função quente em 0x3fd00).
