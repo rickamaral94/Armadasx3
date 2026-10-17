@@ -172,15 +172,19 @@ namespace rsx
 					write_constants(ctx, range.first_word, fifo_span.data(), available);
 				}
 
+				if (rsx::prof::enabled()) [[unlikely]] rsx::prof::g_xform_const_words += available;
+
 				RSX(ctx)->fifo_ctrl->skip_methods(available - 1);
 				return;
 			}
 
-			// Words, not calls: the profiler reports average batch size as words/calls, so a
-			// missing increment here reads as 0 rather than as absent.
-			if (rsx::prof::enabled()) [[unlikely]] rsx::prof::g_xform_const_words += range.word_count;
-
 			write_constants(ctx, range.first_word, fifo_span.data() + src_offset, range.word_count);
+
+			// Words, not calls: the profiler reports average batch size as words/calls, so a
+			// missing increment here reads as 0 rather than as absent. Counts the args this call
+			// consumes, as skip_methods does.
+			if (rsx::prof::enabled()) [[unlikely]] rsx::prof::g_xform_const_words += count;
+
 			RSX(ctx)->fifo_ctrl->skip_methods(count - 1);
 		}
 

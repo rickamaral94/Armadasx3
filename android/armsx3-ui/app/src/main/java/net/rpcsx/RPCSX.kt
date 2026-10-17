@@ -143,6 +143,28 @@ class RPCSX {
     external fun processCompilationQueue(): Boolean
     external fun startMainThreadProcessor(): Boolean
     external fun overlayPadData(port: Int, digital1: Int, digital2: Int, leftStickX: Int, leftStickY: Int, rightStickX: Int, rightStickY: Int): Boolean
+
+    // Remote play capture (native-lib.cpp, android/src/remote_play.cpp). The streaming threads
+    // pull frames and audio from the core; it never calls back for them.
+    external fun remotePlayStart(maxWidth: Int, maxHeight: Int): Boolean
+    external fun remotePlayStop()
+    external fun remotePlayPollVideo(buffer: java.nio.ByteBuffer, info: IntArray, timeoutMs: Int): Int
+    external fun remotePlayPollAudio(buffer: java.nio.ByteBuffer, capFrames: Int, timeoutMs: Int): Int
+    external fun remotePlayCounters(out: IntArray): Boolean
+    // Hardware frames (remotePlayPollVideo returned 2): the slot's buffer as a GL texture, needing a
+    // current EGL context; the slot handed back once the encoder has drawn it; and whether the core
+    // may send them at all.
+    external fun remotePlayImportFrame(slot: Int, texture: Int): Long
+    external fun remotePlayDestroyImage(image: Long)
+    external fun remotePlayReleaseFrame(slot: Int, seq: Int)
+    external fun remotePlaySetHardware(enabled: Boolean)
+    // Whether the running game can be hosted: only the Vulkan renderer captures frames.
+    external fun remotePlayCanCapture(): Boolean
+    // Online hosting, a port on the router (UPnP): this device's address on the router's network or
+    // null (blocks ~2 s the first time); "public address:port" opened for a UDP port or null; close.
+    external fun remotePlayUpnpPrepare(): String?
+    external fun remotePlayUpnpMap(internalPort: Int, externalHint: Int, leaseSeconds: Int): String?
+    external fun remotePlayUpnpUnmap(externalPort: Int)
     /** Analog pressure per pressure-capable button, in CELL_PAD press-offset order
      *  (RIGHT, LEFT, UP, DOWN, TRIANGLE, CIRCLE, CROSS, SQUARE, L1, R1, L2, R2),
      *  each 1..255, or 0 to leave that button digital. */
@@ -217,11 +239,17 @@ class RPCSX {
     external fun kill()
     external fun resume()
     external fun pause()
+    /** From the activity's onStart (false) and onStop (true); paused-game threads poll less. */
+    external fun setAppBackgrounded(backgrounded: Boolean)
     external fun openHomeMenu()
 
     /** Arm an RSX frame capture: the next frame the emulator renders is recorded to
      *  config/captures/ and emulation pauses. */
     external fun captureFrame()
+
+    /** Arm a frame dump of the next frame (1 = final image, 2 = every render pass), saved as PNGs to
+     *  config/captures/. False when the renderer cannot dump frames. */
+    external fun dumpFrame(mode: Int): Boolean
     external fun loginUser(userId: String)
     external fun getUser(): String
     external fun getTitleId(): String

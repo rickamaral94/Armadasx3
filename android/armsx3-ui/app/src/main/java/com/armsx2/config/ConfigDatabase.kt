@@ -189,6 +189,36 @@ object ConfigDatabase {
         // session. The EU disc is the same game and was not tested on its own.
         "BLUS30833" to "Core:\n  SPU Cache: false\n",
         "BLES01395" to "Core:\n  SPU Cache: false\n",
+
+        // Grand Theft Auto IV: SPU XFloat Accuracy on Approximate instead of the database's Accurate.
+        //
+        // The database pins Accurate because Niko falls through the world on Approximate: the
+        // collision job seeds its searches with the SPU's largest float, which Approximate reads as
+        // a NaN. The bundled "ARMSX3 Approximate collision fix" (Ps3PatchRepo.BUNDLED, on by default
+        // for these three serials) seeds them with FLT_MAX instead, and with it the game stays on
+        // the ground on Approximate (Odin 3, 10-12). Accurate costs SPU time the game is short of.
+        //
+        // The patch finds the job by hash, taken from BLUS30682 v01.02, which is the same executable
+        // as BLUS30127 / NPUB30702 v01.08. A version without the update may carry a different job,
+        // and there Approximate drops Niko through the world again; the per-game database toggle
+        // takes this back. Tied to the patch: anyone who turns the patch off needs Accurate back.
+        "BLUS30682" to "Core:\n  SPU XFloat Accuracy: Approximate\n",
+        "BLUS30127" to "Core:\n  SPU XFloat Accuracy: Approximate\n",
+        "NPUB30702" to "Core:\n  SPU XFloat Accuracy: Approximate\n",
+
+        // 3D Dot Game Heroes: PPU Event Wake-Up Delay 25 us (upstream yahfz #19824, RPCS3 issue #4433).
+        //
+        // An SPU signals the PPU through an event queue when a SPURS task is done, and the PPU can
+        // wake and free the task's context before the SPU has finished saving it; the late save
+        // corrupts the heap and the next malloc crashes. The delay holds the woken PPU back for this
+        // long. 25 us is the value yahfz found on his PC; on Android a sleep this short runs long,
+        // which only adds margin. Off (0) for every other game. Not tested on ARMSX3: nobody here
+        // has the game, so if it still crashes the per-game setting is the place to raise it.
+        "BLUS30490" to "Core:\n  PPU Event Wake-Up Delay: 25\n",
+        "BLES00875" to "Core:\n  PPU Event Wake-Up Delay: 25\n",
+        "BLJM60180" to "Core:\n  PPU Event Wake-Up Delay: 25\n",
+        "BLUD80019" to "Core:\n  PPU Event Wake-Up Delay: 25\n",
+
     )
 
     /**

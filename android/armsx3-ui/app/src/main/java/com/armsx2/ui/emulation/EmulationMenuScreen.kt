@@ -90,6 +90,9 @@ import kotlin.math.roundToInt
  *  SCREEN_ASPECTS in RendererTab minus the Custom entry (no slider in the quick menu). */
 private val IN_GAME_SCREEN_ASPECTS = listOf(0, 1333, 1600, 1778, 2000, 2167, 2222, 2333)
 
+/** The Friends panel's nav layer: only its controls answer the pad while it is open. */
+private const val FRIENDS_NAV_LAYER = "menu.friends"
+
 @Composable
 fun EmulationMenuScreen(viewModel: EmulationMenuViewModel = viewModel()) {
     val state = viewModel.state.value
@@ -97,6 +100,11 @@ fun EmulationMenuScreen(viewModel: EmulationMenuViewModel = viewModel()) {
     var shown by remember { mutableStateOf(false) }
     var dismissing by remember { mutableStateOf(false) }
     var friendsOpen by remember { mutableStateOf(false) }
+    // A friend waiting to be let in is answered in the hosting panel, which sits with Friends: the
+    // menu opens there, whether it was opened for the question or was already open.
+    val hostStatus by com.armsx2.remoteplay.RemotePlayHost.status
+    val asking = hostStatus is com.armsx2.remoteplay.RemotePlayHost.Status.Asking
+    LaunchedEffect(asking) { if (asking) friendsOpen = true }
     val closeMenu: () -> Unit = remember(viewModel, scope) {
         {
             if (!dismissing) {
@@ -137,14 +145,19 @@ fun EmulationMenuScreen(viewModel: EmulationMenuViewModel = viewModel()) {
     // The nav registry is shared between the menu and the panel, so ownership has to be explicit:
     // the selection is cleared on both edges, because a selection left pointing at a control on
     // the other side of the transition highlights something the user cannot see.
+    // The panel also claims its own nav layer while open: the menu stays composed behind it, and
+    // without a layer a move could pick one of the menu's controls.
     DisposableEffect(friendsOpen) {
-        if (friendsOpen) {
-            EmulationMenuInputController.overlayDismiss = { friendsOpen = false }
-            com.armsx2.ui.settings.SettingsControllerNav.clearSelection()
-        }
+        if (!friendsOpen) return@DisposableEffect onDispose {}
+        EmulationMenuInputController.overlayDismiss = { friendsOpen = false }
+        val nav = com.armsx2.ui.settings.SettingsControllerNav
+        val previous = nav.activeLayer.value
+        nav.activeLayer.value = FRIENDS_NAV_LAYER
+        nav.clearSelection()
         onDispose {
             EmulationMenuInputController.overlayDismiss = null
-            com.armsx2.ui.settings.SettingsControllerNav.clearSelection()
+            nav.activeLayer.value = previous
+            nav.clearSelection()
         }
     }
     // Highlight the panel's first control once it has actually composed. Selecting in the same
@@ -291,28 +304,42 @@ fun EmulationMenuScreen(viewModel: EmulationMenuViewModel = viewModel()) {
                 shadowElevation = 24.dp,
             ) {
                 Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-                    Row(
-                        Modifier.fillMaxWidth().padding(start = 16.dp, end = 10.dp, top = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
+                    androidx.compose.runtime.CompositionLocalProvider(
+                        com.armsx2.ui.settings.LocalNavLayer provides FRIENDS_NAV_LAYER,
                     ) {
-                        Text(
-                            str("friends.title"),
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
+                        Row(
+                            Modifier.fillMaxWidth().padding(start = 16.dp, end = 10.dp, top = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                str("friends.title"),
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                            )
+                            // Between the title and Close: whose Discord this is.
+                            if (com.armsx2.DiscordPresence.available()) {
+                                com.armsx2.ui.friends.SelfChip(
+                                    Modifier.weight(1f).padding(horizontal = 12.dp),
+                                )
+                            } else {
+                                Spacer(Modifier.weight(1f))
+                            }
+                            TextButton(
+                                onClick = { friendsOpen = false },
+                                modifier = Modifier.controllerFocusable(
+                                    "menu.friends.close",
+                                    onConfirm = { friendsOpen = false },
+                                ),
+                            ) { Text(str("action.close")) }
+                        }
+                        // Hosting sits with Friends: there is no room for another tab in this menu.
+                        com.armsx2.remoteplay.RemotePlayHostPanel(
+                            Modifier.padding(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 10.dp),
                         )
-                        // Between the title and Close: whose Discord this is.
-                        com.armsx2.ui.friends.SelfChip(
-                            Modifier.weight(1f).padding(horizontal = 12.dp),
-                        )
-                        TextButton(
-                            onClick = { friendsOpen = false },
-                            modifier = Modifier.controllerFocusable(
-                                "menu.friends.close",
-                                onConfirm = { friendsOpen = false },
-                            ),
-                        ) { Text(str("action.close")) }
+                        if (com.armsx2.DiscordPresence.available()) {
+                            com.armsx2.ui.friends.FriendsPanel(Modifier.padding(horizontal = 12.dp))
+                        }
                     }
-                    com.armsx2.ui.friends.FriendsPanel(Modifier.padding(horizontal = 12.dp))
                 }
             }
         }
@@ -617,27 +644,26 @@ private fun MenuHeader(
             Modifier.align(Alignment.CenterVertically),
         )
 
-        // Friends, in the header where it is always visible, with the online count on it. A build
-        // without the SDK has nothing to show, so it does not take up header space there.
-        if (com.armsx2.DiscordPresence.available()) {
-            Spacer(Modifier.width(8.dp))
-            Surface(
-                onClick = onOpenFriends,
-                modifier = Modifier.controllerFocusable(
-                    "menu.friends",
-                    RoundedCornerShape(14.dp),
-                    onConfirm = onOpenFriends,
-                ),
-                shape = RoundedCornerShape(14.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)),
-            ) {
-                Box(Modifier.padding(horizontal = 11.dp, vertical = 9.dp)) {
-                    com.armsx2.ui.friends.FriendsGlyphWithBadge(
-                        color = MaterialTheme.colorScheme.onSurface,
-                        glyphSize = 19.sp,
-                    )
-                }
+        // Friends, in the header where it is always visible, with the online count on it. Shown
+        // even where Discord is not available: remote play hosting lives behind it too, and
+        // hosting does not need Discord. The Discord parts inside hide themselves there.
+        Spacer(Modifier.width(8.dp))
+        Surface(
+            onClick = onOpenFriends,
+            modifier = Modifier.controllerFocusable(
+                "menu.friends",
+                RoundedCornerShape(14.dp),
+                onConfirm = onOpenFriends,
+            ),
+            shape = RoundedCornerShape(14.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)),
+        ) {
+            Box(Modifier.padding(horizontal = 11.dp, vertical = 9.dp)) {
+                com.armsx2.ui.friends.FriendsGlyphWithBadge(
+                    color = MaterialTheme.colorScheme.onSurface,
+                    glyphSize = 19.sp,
+                )
             }
         }
     }
@@ -1216,6 +1242,21 @@ private fun PerformancePane(state: EmulationMenuUiState, viewModel: EmulationMen
         ) {
             armed = true
             Rpcs3Bridge.captureFrame()
+        }
+        Spacer(Modifier.height(6.dp))
+        // The frame as pictures, pass by pass if asked (Settings, Advanced, Developer tools).
+        // 0 = not yet, 1 = armed, 2 = the renderer cannot dump frames.
+        var dumpState by remember { mutableStateOf(0) }
+        MenuButtonRow(
+            title = str("capture.frameDump"),
+            description = when (dumpState) {
+                1 -> str("capture.frameDump.armed")
+                2 -> str("capture.frameDump.unsupported")
+                else -> str("capture.frameDump.detail")
+            },
+            glyph = if (dumpState == 1) "●" else "▦",
+        ) {
+            dumpState = if (Rpcs3Bridge.dumpFrame(com.armsx2.DevTools.frameDumpMode)) 1 else 2
         }
     }
     SectionCard(str("tab.overlay")) {

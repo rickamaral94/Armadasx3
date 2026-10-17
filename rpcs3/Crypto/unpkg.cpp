@@ -952,8 +952,7 @@ bool package_reader::set_install_path()
 			return false;
 		}
 
-		// Escaped as upstream does, so a byte the host file system cannot take is mapped
-		// rather than failing the install.
+		// Escaped like every other host path built from guest data (upstream c4d834480).
 		dir += vfs::escape(name) + '/';
 	}
 

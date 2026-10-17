@@ -302,6 +302,8 @@ bool rsx::thread::send_event(u64 data1, u64 event_flags, u64 data3)
 	return true;
 }
 
+// ---- Event Queue ----
+
 void _sys_rsx_drain_event_queue(rsx::thread* rsxthr, u64 event_flags = umax, u64 wait_timeout_ms = 1000ull)
 {
 	const auto& driverInfo = *vm::_ptr<RsxDriverInfo>(rsxthr->driver_info);
@@ -363,6 +365,8 @@ void _sys_rsx_drain_event_queue(rsx::thread* rsxthr, u64 event_flags = umax, u64
 		}
 	}
 }
+
+// ---- LV2 ----
 
 error_code sys_rsx_device_open(cpu_thread& cpu)
 {

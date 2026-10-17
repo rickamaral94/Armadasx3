@@ -394,12 +394,6 @@ namespace gl::es
 		return glCheckFramebufferStatus(target);
 	}
 
-	void glNamedFramebufferParameteriEXT(GLuint framebuffer, GLenum pname, GLint param)
-	{
-		const scoped_fbo_bind bind(framebuffer);
-		glFramebufferParameteri(GL_FRAMEBUFFER, pname, param);
-	}
-
 	void glFramebufferDrawBuffersEXT(GLuint framebuffer, GLsizei n, const GLenum* bufs)
 	{
 		const scoped_fbo_bind bind(framebuffer);
@@ -471,11 +465,6 @@ namespace gl::es
 		glNamedFramebufferTextureEXT(framebuffer, attachment, texture, level);
 	}
 
-	void glNamedFramebufferParameteri(GLuint framebuffer, GLenum pname, GLint param)
-	{
-		glNamedFramebufferParameteriEXT(framebuffer, pname, param);
-	}
-
 	// Layered attach, needed since upstream started binding 3D/array/cube levels through DSA.
 	// EXT_direct_state_access has no NamedFramebufferTextureLayer, so this binds the framebuffer
 	// and uses the non-DSA entry point -- correct, and no worse than what the caller did before
@@ -510,6 +499,26 @@ namespace gl::es
 	void glNamedFramebufferReadBuffer(GLuint framebuffer, GLenum src)
 	{
 		glFramebufferReadBufferEXT(framebuffer, src);
+	}
+
+	// Framebuffer-less rendering (upstream 66ba73282) gives an attachment-less framebuffer its
+	// default size and sample count. ES 3.1 has only the bound-target glFramebufferParameteri, so
+	// this binds, sets and restores the previous binding, like glNamedFramebufferTextureLayer.
+	void glNamedFramebufferParameteri(GLuint framebuffer, GLenum pname, GLint param)
+	{
+		GLint previous = 0;
+		glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &previous);
+
+		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, framebuffer);
+		glFramebufferParameteri(GL_DRAW_FRAMEBUFFER, pname, param);
+
+		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, static_cast<GLuint>(previous));
+	}
+
+	// DSA_CALL2 resolves either spelling, so both have to exist here.
+	void glNamedFramebufferParameteriEXT(GLuint framebuffer, GLenum pname, GLint param)
+	{
+		glNamedFramebufferParameteri(framebuffer, pname, param);
 	}
 
 	// These two do lose the target, and a texture parameter set on the wrong

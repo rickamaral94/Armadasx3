@@ -41,4 +41,4 @@ nem jogos.
 | 4 | Diagnóstico exportável | Implementado, com métricas de frame time e CPU por thread; testes JVM; **não validado em aparelho** |
 | 5 | Baseline no Odin 2 Portal | Não iniciado |
 | 6 | Correções direcionadas | Não iniciado |
-| 7 | Acompanhamento do upstream | Sincronizado com ARMSX3 1.1 (`6dfb2967`) e RPCS3 `26098fb42` em 2026-10-11; divergências em `UPSTREAM.md` |
+| 7 | Acompanhamento do upstream | Sincronizado com ARMSX3 1.2 (`23e6daab`, 2026-10-17) e RPCS3 `26098fb42` (2026-10-11); divergências em `UPSTREAM.md` |

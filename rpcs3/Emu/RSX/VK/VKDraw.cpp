@@ -1365,6 +1365,11 @@ void VKGSRender::end()
 	// itself only accounts for a couple of milliseconds.
 	RSX_PROF_SCOPE(draw_setup);
 
+	if (m_frame_dump.active) [[unlikely]]
+	{
+		m_frame_dump.draws++;
+	}
+
 	if (should_skip_draw())
 	{
 		execute_nop_draw();

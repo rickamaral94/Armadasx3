@@ -2642,8 +2642,6 @@ error_code sys_fs_fcntl(ppu_thread& ppu, u32 fd, u32 op, vm::ptr<void> _arg, u32
 
 		(op == 0x8000000a ? &file->reads_total : &file->writes_total)->fetch_add(done_size);
 
-		(op == 0x8000000a ? &file->reads_total : &file->writes_total)->fetch_add(done_size);
-
 		// TODO: EDATA corruption detection
 
 		arg->out_code = CELL_OK;

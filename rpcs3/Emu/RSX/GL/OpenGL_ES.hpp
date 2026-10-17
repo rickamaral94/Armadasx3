@@ -349,8 +349,6 @@ namespace gl::es
 
 	void glNamedFramebufferTextureEXT(GLuint framebuffer, GLenum attachment, GLuint texture, GLint level);
 	GLenum glCheckNamedFramebufferStatusEXT(GLuint framebuffer, GLenum target);
-	// GLES 3.1 core glFramebufferParameteri behind a bind, for upstream's attachment-less framebuffers.
-	void glNamedFramebufferParameteriEXT(GLuint framebuffer, GLenum pname, GLint param);
 	void glFramebufferDrawBuffersEXT(GLuint framebuffer, GLsizei n, const GLenum* bufs);
 	void glFramebufferReadBufferEXT(GLuint framebuffer, GLenum src);
 
@@ -381,9 +379,10 @@ namespace gl::es
 	void glNamedFramebufferTextureLayer(GLuint framebuffer, GLenum attachment, GLuint texture, GLint level, GLint layer);
 	void glNamedFramebufferTextureLayerEXT(GLuint framebuffer, GLenum attachment, GLuint texture, GLint level, GLint layer);
 	GLenum glCheckNamedFramebufferStatus(GLuint framebuffer, GLenum target);
-	void glNamedFramebufferParameteri(GLuint framebuffer, GLenum pname, GLint param);
 	void glNamedFramebufferDrawBuffers(GLuint framebuffer, GLsizei n, const GLenum* bufs);
 	void glNamedFramebufferReadBuffer(GLuint framebuffer, GLenum src);
+	void glNamedFramebufferParameteri(GLuint framebuffer, GLenum pname, GLint param);
+	void glNamedFramebufferParameteriEXT(GLuint framebuffer, GLenum pname, GLint param);
 
 	// --- Not sugar. Real reimplementations. ---
 

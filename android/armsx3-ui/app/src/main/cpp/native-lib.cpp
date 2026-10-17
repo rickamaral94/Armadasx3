@@ -1,6 +1,11 @@
+#include <EGL/egl.h>
+#include <EGL/eglext.h>
+#include <GLES2/gl2.h>
+#include <GLES2/gl2ext.h>
 #include <algorithm>
 #include <android/api-level.h>
 #include <android/dlext.h>
+#include <android/hardware_buffer.h>
 #include <android/log.h>
 #include <cstdio>
 #include <cstring>
@@ -24,6 +29,19 @@ struct RPCSXApi {
   bool (*overlayPadData)(int port, int digital1, int digital2, int leftStickX,
                          int leftStickY, int rightStickX, int rightStickY);
   bool (*overlayPadPressure)(int port, const int *values, int count);
+  // Remote play capture (android/src/remote_play.cpp in the core).
+  bool (*remotePlayStart)(int maxWidth, int maxHeight);
+  void (*remotePlayStop)();
+  int (*remotePlayPollVideo)(uint8_t *dst, int64_t cap, int32_t *info, int timeoutMs);
+  int (*remotePlayPollAudio)(int16_t *dst, int capFrames, int timeoutMs);
+  void (*remotePlayCounters)(uint32_t *out);
+  void (*remotePlayReleaseFrame)(int slot, uint32_t seq);
+  AHardwareBuffer *(*remotePlayHardwareBuffer)(int slot, uint32_t *generation);
+  void (*remotePlaySetHardware)(bool enabled);
+  bool (*remotePlayCanCapture)();
+  bool (*remotePlayUpnpPrepare)(char *lanAddr, int lanAddrLen);
+  int (*remotePlayUpnpMap)(int internalPort, int externalHint, int leaseSeconds, char *publicAddr, int publicAddrLen);
+  void (*remotePlayUpnpUnmap)(int externalPort);
   bool (*keyboardKey)(int androidKeyCode, int unicode, bool pressed, bool repeat);
   bool (*initialize)(std::string_view rootDir, std::string_view user);
   void (*setSocInfo)(std::string_view socInfo);
@@ -37,8 +55,10 @@ struct RPCSXApi {
   void (*kill)();
   void (*resume)();
   void (*pause)();
+  void (*setAppBackgrounded)(bool);
   void (*openHomeMenu)();
   void (*captureFrame)();
+  bool (*dumpFrame)(int mode);
   std::string (*getTitleId)();
   std::string (*getTitle)();
   unsigned long long (*getFramePeriodNs)();
@@ -164,6 +184,18 @@ struct RPCSXLibrary : RPCSXApi {
     // clang-format off
     result.overlayPadData = reinterpret_cast<decltype(overlayPadData)>(dlsym(handle, "_rpcsx_overlayPadData"));
     result.overlayPadPressure = reinterpret_cast<decltype(overlayPadPressure)>(dlsym(handle, "_rpcsx_overlayPadPressure"));
+    result.remotePlayStart = reinterpret_cast<decltype(remotePlayStart)>(dlsym(handle, "_rpcsx_remotePlayStart"));
+    result.remotePlayStop = reinterpret_cast<decltype(remotePlayStop)>(dlsym(handle, "_rpcsx_remotePlayStop"));
+    result.remotePlayPollVideo = reinterpret_cast<decltype(remotePlayPollVideo)>(dlsym(handle, "_rpcsx_remotePlayPollVideo"));
+    result.remotePlayPollAudio = reinterpret_cast<decltype(remotePlayPollAudio)>(dlsym(handle, "_rpcsx_remotePlayPollAudio"));
+    result.remotePlayCounters = reinterpret_cast<decltype(remotePlayCounters)>(dlsym(handle, "_rpcsx_remotePlayCounters"));
+    result.remotePlayReleaseFrame = reinterpret_cast<decltype(remotePlayReleaseFrame)>(dlsym(handle, "_rpcsx_remotePlayReleaseFrame"));
+    result.remotePlayHardwareBuffer = reinterpret_cast<decltype(remotePlayHardwareBuffer)>(dlsym(handle, "_rpcsx_remotePlayHardwareBuffer"));
+    result.remotePlaySetHardware = reinterpret_cast<decltype(remotePlaySetHardware)>(dlsym(handle, "_rpcsx_remotePlaySetHardware"));
+    result.remotePlayCanCapture = reinterpret_cast<decltype(remotePlayCanCapture)>(dlsym(handle, "_rpcsx_remotePlayCanCapture"));
+    result.remotePlayUpnpPrepare = reinterpret_cast<decltype(remotePlayUpnpPrepare)>(dlsym(handle, "_rpcsx_remotePlayUpnpPrepare"));
+    result.remotePlayUpnpMap = reinterpret_cast<decltype(remotePlayUpnpMap)>(dlsym(handle, "_rpcsx_remotePlayUpnpMap"));
+    result.remotePlayUpnpUnmap = reinterpret_cast<decltype(remotePlayUpnpUnmap)>(dlsym(handle, "_rpcsx_remotePlayUpnpUnmap"));
     result.keyboardKey = reinterpret_cast<decltype(keyboardKey)>(dlsym(handle, "_rpcsx_keyboardKey"));
     result.initialize = reinterpret_cast<decltype(initialize)>(dlsym(handle, "_rpcsx_initialize"));
     result.setSocInfo = reinterpret_cast<decltype(setSocInfo)>(dlsym(handle, "_rpcsx_setSocInfo"));
@@ -176,7 +208,9 @@ struct RPCSXLibrary : RPCSXApi {
     result.kill = reinterpret_cast<decltype(kill)>(dlsym(handle, "_rpcsx_kill"));
     result.resume = reinterpret_cast<decltype(resume)>(dlsym(handle, "_rpcsx_resume"));
     result.pause = reinterpret_cast<decltype(pause)>(dlsym(handle, "_rpcsx_pause"));
+    result.setAppBackgrounded = reinterpret_cast<decltype(setAppBackgrounded)>(dlsym(handle, "_rpcsx_setAppBackgrounded"));
     result.captureFrame = reinterpret_cast<decltype(captureFrame)>(dlsym(handle, "_rpcsx_captureFrame"));
+    result.dumpFrame = reinterpret_cast<decltype(dumpFrame)>(dlsym(handle, "_rpcsx_dumpFrame"));
     result.openHomeMenu = reinterpret_cast<decltype(openHomeMenu)>(dlsym(handle, "_rpcsx_openHomeMenu"));
     result.getTitleId = reinterpret_cast<decltype(getTitleId)>(dlsym(handle, "_rpcsx_getTitleId"));
     result.getTitle = reinterpret_cast<decltype(getTitle)>(dlsym(handle, "_rpcsx_getTitle"));
@@ -324,6 +358,209 @@ extern "C" JNIEXPORT jboolean JNICALL Java_net_rpcsx_RPCSX_overlayPadData(
 
   return rpcsxLib.overlayPadData(port, digital1, digital2, leftStickX,
                                  leftStickY, rightStickX, rightStickY);
+}
+
+// Remote play. The streaming threads pull frames and audio from the core through these; the core
+// never calls back into Java for them. Every one fails soft on a core without the exports.
+extern "C" JNIEXPORT jboolean JNICALL Java_net_rpcsx_RPCSX_remotePlayStart(
+    JNIEnv *, jobject, jint maxWidth, jint maxHeight) {
+  if (rpcsxLib.remotePlayStart == nullptr) {
+    return false;
+  }
+
+  return rpcsxLib.remotePlayStart(maxWidth, maxHeight);
+}
+
+extern "C" JNIEXPORT void JNICALL Java_net_rpcsx_RPCSX_remotePlayStop(JNIEnv *, jobject) {
+  if (rpcsxLib.remotePlayStop != nullptr) {
+    rpcsxLib.remotePlayStop();
+  }
+}
+
+// buffer: a direct ByteBuffer for an NV12 frame (Y plane, then interleaved UV, rows packed).
+// info (6 ints): width, height, slot, generation, seq, unused. Returns 2 with a hardware frame
+// (nothing written to buffer), 1 with an NV12 frame, 0 on timeout, -1 when capture is off, -2 when
+// the buffer is too small for the frame described in info.
+extern "C" JNIEXPORT jint JNICALL Java_net_rpcsx_RPCSX_remotePlayPollVideo(
+    JNIEnv *env, jobject, jobject buffer, jintArray info, jint timeoutMs) {
+  if (rpcsxLib.remotePlayPollVideo == nullptr || buffer == nullptr || info == nullptr ||
+      env->GetArrayLength(info) < 6) {
+    return -1;
+  }
+
+  auto *dst = static_cast<uint8_t *>(env->GetDirectBufferAddress(buffer));
+  const jlong cap = env->GetDirectBufferCapacity(buffer);
+  if (dst == nullptr || cap <= 0) {
+    return -1;
+  }
+
+  int32_t out[6] = {};
+  const int result = rpcsxLib.remotePlayPollVideo(dst, cap, out, timeoutMs);
+  env->SetIntArrayRegion(info, 0, 6, out);
+  return result;
+}
+
+// Remote play's hardware frames: slots the GPU fills with RGBA as AHardwareBuffers, handed to the
+// video encoder as GL textures so a frame never passes through the CPU. The two calls below that
+// touch GL need a current EGL context on the calling thread.
+
+extern "C" JNIEXPORT void JNICALL Java_net_rpcsx_RPCSX_remotePlayReleaseFrame(JNIEnv *, jobject, jint slot, jint seq) {
+  if (rpcsxLib.remotePlayReleaseFrame != nullptr) {
+    rpcsxLib.remotePlayReleaseFrame(slot, static_cast<uint32_t>(seq));
+  }
+}
+
+// Remote play online hosting: this device's address on the router's network, or null when there
+// is no router to open a port on. Blocks about two seconds the first time.
+extern "C" JNIEXPORT jstring JNICALL Java_net_rpcsx_RPCSX_remotePlayUpnpPrepare(JNIEnv *env, jobject) {
+  char lan[64] = {};
+  if (rpcsxLib.remotePlayUpnpPrepare == nullptr || !rpcsxLib.remotePlayUpnpPrepare(lan, sizeof(lan)) || lan[0] == 0) {
+    return nullptr;
+  }
+  return env->NewStringUTF(lan);
+}
+
+// "public address:router port" for UDP internalPort opened on the router, or null.
+extern "C" JNIEXPORT jstring JNICALL Java_net_rpcsx_RPCSX_remotePlayUpnpMap(
+    JNIEnv *env, jobject, jint internalPort, jint externalHint, jint leaseSeconds) {
+  char address[64] = {};
+  const int port = rpcsxLib.remotePlayUpnpMap == nullptr
+      ? 0
+      : rpcsxLib.remotePlayUpnpMap(internalPort, externalHint, leaseSeconds, address, sizeof(address));
+  if (port <= 0 || address[0] == 0) {
+    return nullptr;
+  }
+  const std::string result = std::string(address) + ":" + std::to_string(port);
+  return env->NewStringUTF(result.c_str());
+}
+
+extern "C" JNIEXPORT void JNICALL Java_net_rpcsx_RPCSX_remotePlayUpnpUnmap(JNIEnv *, jobject, jint externalPort) {
+  if (rpcsxLib.remotePlayUpnpUnmap != nullptr) {
+    rpcsxLib.remotePlayUpnpUnmap(externalPort);
+  }
+}
+
+extern "C" JNIEXPORT void JNICALL Java_net_rpcsx_RPCSX_remotePlaySetHardware(JNIEnv *, jobject, jboolean enabled) {
+  if (rpcsxLib.remotePlaySetHardware != nullptr) {
+    rpcsxLib.remotePlaySetHardware(enabled);
+  }
+}
+
+// Whether the running game can be hosted: its renderer captures frames (Vulkan only). True on a
+// core without the check, which hosted regardless.
+extern "C" JNIEXPORT jboolean JNICALL Java_net_rpcsx_RPCSX_remotePlayCanCapture(JNIEnv *, jobject) {
+  return rpcsxLib.remotePlayCanCapture == nullptr || rpcsxLib.remotePlayCanCapture();
+}
+
+namespace {
+struct RemotePlayEgl {
+  PFNEGLGETNATIVECLIENTBUFFERANDROIDPROC getNativeClientBuffer = nullptr;
+  PFNEGLCREATEIMAGEKHRPROC createImage = nullptr;
+  PFNEGLDESTROYIMAGEKHRPROC destroyImage = nullptr;
+  PFNGLEGLIMAGETARGETTEXTURE2DOESPROC imageTargetTexture = nullptr;
+
+  bool load() {
+    if (createImage == nullptr) {
+      getNativeClientBuffer = reinterpret_cast<PFNEGLGETNATIVECLIENTBUFFERANDROIDPROC>(eglGetProcAddress("eglGetNativeClientBufferANDROID"));
+      createImage = reinterpret_cast<PFNEGLCREATEIMAGEKHRPROC>(eglGetProcAddress("eglCreateImageKHR"));
+      destroyImage = reinterpret_cast<PFNEGLDESTROYIMAGEKHRPROC>(eglGetProcAddress("eglDestroyImageKHR"));
+      imageTargetTexture = reinterpret_cast<PFNGLEGLIMAGETARGETTEXTURE2DOESPROC>(eglGetProcAddress("glEGLImageTargetTexture2DOES"));
+    }
+    return getNativeClientBuffer != nullptr && createImage != nullptr && destroyImage != nullptr &&
+           imageTargetTexture != nullptr;
+  }
+};
+
+RemotePlayEgl remotePlayEgl;
+} // namespace
+
+// Binds a hardware frame slot's buffer to texture (GL_TEXTURE_EXTERNAL_OES). Returns the EGLImage
+// to destroy later with remotePlayDestroyImage, or 0 when the slot has no buffer or the import
+// failed; the app then asks for NV12 frames instead.
+extern "C" JNIEXPORT jlong JNICALL Java_net_rpcsx_RPCSX_remotePlayImportFrame(JNIEnv *, jobject, jint slot, jint texture) {
+  if (rpcsxLib.remotePlayHardwareBuffer == nullptr || !remotePlayEgl.load()) {
+    return 0;
+  }
+
+  uint32_t generation = 0;
+  AHardwareBuffer *buffer = rpcsxLib.remotePlayHardwareBuffer(slot, &generation);
+  if (buffer == nullptr) {
+    return 0;
+  }
+
+  const EGLDisplay display = eglGetCurrentDisplay();
+  const EGLClientBuffer client = remotePlayEgl.getNativeClientBuffer(buffer);
+  const EGLint attributes[] = {EGL_IMAGE_PRESERVED_KHR, EGL_TRUE, EGL_NONE};
+  EGLImageKHR image = EGL_NO_IMAGE_KHR;
+
+  if (display != EGL_NO_DISPLAY && client != nullptr) {
+    image = remotePlayEgl.createImage(display, EGL_NO_CONTEXT, EGL_NATIVE_BUFFER_ANDROID, client, attributes);
+  }
+
+  // The image holds the buffer from here on.
+  AHardwareBuffer_release(buffer);
+
+  if (image == EGL_NO_IMAGE_KHR) {
+    return 0;
+  }
+
+  // Errors left over from earlier GL work on this context would read as a failed bind.
+  for (int i = 0; i < 16 && glGetError() != GL_NO_ERROR; i++) {
+  }
+
+  glBindTexture(GL_TEXTURE_EXTERNAL_OES, static_cast<GLuint>(texture));
+  remotePlayEgl.imageTargetTexture(GL_TEXTURE_EXTERNAL_OES, static_cast<GLeglImageOES>(image));
+  const bool bound = glGetError() == GL_NO_ERROR;
+  glBindTexture(GL_TEXTURE_EXTERNAL_OES, 0);
+
+  if (!bound) {
+    remotePlayEgl.destroyImage(display, image);
+    return 0;
+  }
+
+  return reinterpret_cast<jlong>(image);
+}
+
+extern "C" JNIEXPORT void JNICALL Java_net_rpcsx_RPCSX_remotePlayDestroyImage(JNIEnv *, jobject, jlong image) {
+  if (image != 0 && remotePlayEgl.load()) {
+    remotePlayEgl.destroyImage(eglGetCurrentDisplay(), reinterpret_cast<EGLImageKHR>(image));
+  }
+}
+
+// out (4 ints): running totals of game frames seen while capturing, frames not read back, frames
+// handed to the app and frames replaced before the app took them. False when the core lacks it.
+extern "C" JNIEXPORT jboolean JNICALL Java_net_rpcsx_RPCSX_remotePlayCounters(
+    JNIEnv *env, jobject, jintArray out) {
+  if (rpcsxLib.remotePlayCounters == nullptr || out == nullptr || env->GetArrayLength(out) < 4) {
+    return false;
+  }
+
+  uint32_t counters[4] = {};
+  rpcsxLib.remotePlayCounters(counters);
+  jint values[4];
+  for (int i = 0; i < 4; i++) {
+    values[i] = static_cast<jint>(counters[i]);
+  }
+  env->SetIntArrayRegion(out, 0, 4, values);
+  return true;
+}
+
+// buffer: a direct ByteBuffer receiving stereo s16 at 48 kHz. Returns frames written, 0 on
+// timeout, -1 when capture is off.
+extern "C" JNIEXPORT jint JNICALL Java_net_rpcsx_RPCSX_remotePlayPollAudio(
+    JNIEnv *env, jobject, jobject buffer, jint capFrames, jint timeoutMs) {
+  if (rpcsxLib.remotePlayPollAudio == nullptr || buffer == nullptr) {
+    return -1;
+  }
+
+  auto *dst = static_cast<int16_t *>(env->GetDirectBufferAddress(buffer));
+  const jlong cap = env->GetDirectBufferCapacity(buffer);
+  if (dst == nullptr || cap < 4) {
+    return -1;
+  }
+
+  const int frames = static_cast<int>(std::min<jlong>(capFrames, cap / 4));
+  return rpcsxLib.remotePlayPollAudio(dst, frames, timeoutMs);
 }
 
 extern "C" JNIEXPORT jboolean JNICALL Java_net_rpcsx_RPCSX_overlayPadPressure(
@@ -496,6 +733,17 @@ extern "C" JNIEXPORT void JNICALL Java_net_rpcsx_RPCSX_pause(JNIEnv *env,
   return rpcsxLib.pause();
 }
 
+extern "C" JNIEXPORT void JNICALL Java_net_rpcsx_RPCSX_setAppBackgrounded(JNIEnv *env,
+                                                                          jobject,
+                                                                          jboolean backgrounded) {
+  // Same null guard as pause: the core may not be loaded yet, and an older core lacks the export.
+  if (rpcsxLib.setAppBackgrounded == nullptr) {
+      return;
+  }
+
+  rpcsxLib.setAppBackgrounded(backgrounded == JNI_TRUE);
+}
+
 extern "C" JNIEXPORT void JNICALL Java_net_rpcsx_RPCSX_openHomeMenu(JNIEnv *env,
                                                                     jobject) {
   // The core is dlopen()ed separately and may not be up yet -- during
@@ -515,6 +763,15 @@ extern "C" JNIEXPORT void JNICALL Java_net_rpcsx_RPCSX_captureFrame(JNIEnv *env,
   }
 
   return rpcsxLib.captureFrame();
+}
+
+extern "C" JNIEXPORT jboolean JNICALL Java_net_rpcsx_RPCSX_dumpFrame(JNIEnv *env,
+                                                                    jobject, jint mode) {
+  if (rpcsxLib.dumpFrame == nullptr) {
+      return false;
+  }
+
+  return rpcsxLib.dumpFrame(mode);
 }
 
 extern "C" JNIEXPORT jstring JNICALL

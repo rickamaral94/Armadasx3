@@ -1,5 +1,6 @@
 #include "stdafx.h"
 #include "RSXThread.h"
+#include "Emu/android_app_state.h"
 
 #include "Capture/rsx_capture.h"
 #include "Common/surface_store.h"
@@ -1335,7 +1336,8 @@ namespace rsx
 
 					while (Emu.IsPaused() && !is_stopped())
 					{
-						thread_ctrl::wait_for(5'000);
+						// ARMSX3: 4 checks a second instead of 200 while the app is out of sight (#196)
+						thread_ctrl::wait_for(g_android_app_backgrounded ? 250'000 : 5'000);
 					}
 
 					// Restore difference
@@ -3726,11 +3728,21 @@ namespace rsx
 				{
 					rsx_log.success("Capture successful: %s", file_path);
 					frame_capture.reset();
+#ifdef __ANDROID__
+					// Keep playing, and say where it went. Upstream pauses so the frame can be looked at
+					// from the desktop UI; on Android nothing said the game had been paused or offered
+					// a way back, so a capture looked like the game had frozen.
+					rsx::overlays::queue_message(fmt::format("RSX capture saved: config/%s", file_path.substr(fs::get_config_dir().size())), 6'000'000);
+#else
 					pause_emulator = true;
+#endif
 				}
 				else
 				{
 					rsx_log.error("Capture failed: %s (%s)", file_path, fs::g_tls_error);
+#ifdef __ANDROID__
+					rsx::overlays::queue_message(fmt::format("RSX capture failed: %s", fs::g_tls_error), 6'000'000);
+#endif
 				}
 			}
 			else

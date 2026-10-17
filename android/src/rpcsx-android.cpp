@@ -14,6 +14,8 @@
 #include "Emu/Cell/SPURecompiler.h"
 #include "Emu/Cell/SPUThread.h"
 #include "Emu/IdManager.h"
+#include "util/video_provider.h"
+#include "Emu/android_app_state.h"
 #include "Emu/Io/KeyboardHandler.h"
 #include "Emu/Io/Null/NullKeyboardHandler.h"
 #include "Emu/Io/Null/NullMouseHandler.h"
@@ -29,6 +31,7 @@
 #include "Emu/RSX/Overlays/overlay_trophy_notification.h"
 #include "Emu/RSX/Overlays/overlay_utils.h"
 #include "Emu/RSX/RSXThread.h"
+#include "Emu/RSX/rsx_frame_dump.h"
 #include "Emu/RSX/GL/GLGSRender.h"
 #include "Emu/RSX/VK/VKGSRender.h"
 #include "Emu/savestate_utils.hpp"
@@ -434,18 +437,27 @@ struct GraphicsFrame : GSFrameBase {
     // rest of the session. The symptom was a black game area at 0% CPU with the log stopping dead
     // just after Vulkan device creation and nothing at all to say why. Say so instead.
     u32 waited_ms = 0;
+    u32 next_report_ms = 3000;
 
     while ((result = g_native_window.load()) == nullptr) [[unlikely]] {
       if (Emu.IsStopped()) {
         return activeNativeWindow;
       }
 
-      std::this_thread::sleep_for(std::chrono::milliseconds(100));
-      waited_ms += 100;
+      // Out of sight the surface is gone on purpose and comes back with the app, so wait in
+      // longer steps and say nothing: this line every 3 s kept the log writer busy for as long
+      // as the device stayed locked (#196).
+      const u32 step_ms = g_android_app_backgrounded ? 250 : 100;
+      std::this_thread::sleep_for(std::chrono::milliseconds(step_ms));
+      waited_ms += step_ms;
 
-      if (waited_ms % 3000 == 0) {
-        rpcsx_android.error("Still waiting for a Surface after %u ms -- the renderer cannot start "
-                            "until surfaceChanged reaches native.", waited_ms);
+      if (waited_ms >= next_report_ms) {
+        next_report_ms = waited_ms + 3000;
+
+        if (!g_android_app_backgrounded) {
+          rpcsx_android.error("Still waiting for a Surface after %u ms -- the renderer cannot start "
+                              "until surfaceChanged reaches native.", waited_ms);
+        }
       }
     }
 
@@ -626,12 +638,19 @@ public:
 
   u64 display_epoch() const override { return g_native_window_epoch.load(); }
 
-  bool can_consume_frame() const override { return false; }
+  // The recording hook, as the Qt gs_frame forwards it. Its only user here is remote play
+  // (remote_play.cpp); with nothing recording, can_consume_frame stays false.
+  bool can_consume_frame() const override {
+    return g_fxo->get<utils::video_provider>().can_consume_frame();
+  }
 
   // Upstream takes the buffer by rvalue ref (it moves it); RPCSX's lvalue-ref
   // signature no longer overrides, which left GraphicsFrame abstract.
   void present_frame(std::vector<u8> &&data, u32 pitch, u32 width, u32 height,
-                     bool is_bgra) const override {}
+                     bool is_bgra) const override {
+    g_fxo->get<utils::video_provider>().present_frame(std::move(data), pitch, width,
+                                                      height, is_bgra);
+  }
   // Save slot thumbnails. RPCS3 already renders and hands over the finished frame here
   // whenever a screenshot is requested; this used to drop it, which is why the slot picker
   // had nothing to show. Kept as the most recent frame rather than written straight out:
@@ -1097,6 +1116,8 @@ static std::pair<std::string, std::u32string> g_strings[] = {
                 "Handle RSX Memory Tiling"),
     MAKE_STRING(HOME_MENU_SETTINGS_ADVANCED_MAX_SPURS_THREADS,
                 "Max SPURS Threads"),
+    MAKE_STRING(HOME_MENU_SETTINGS_ADVANCED_PPU_EVENT_WAKE_UP_DELAY,
+                "PPU Event Wake-Up Delay"),
     MAKE_STRING(HOME_MENU_SETTINGS_ADVANCED_DRIVER_WAKE_UP_DELAY,
                 "Driver Wake-Up Delay"),
     MAKE_STRING(HOME_MENU_SETTINGS_ADVANCED_VBLANK_FREQUENCY,
@@ -2358,6 +2379,9 @@ static std::atomic<bool> g_disc_eject_enabled{false};
 static std::atomic<bool> g_disc_insert_enabled{false};
 
 
+// Remote play (remote_play.cpp): keeps a stream on a game that restarts itself.
+void remote_play_on_run();
+
 static void setupCallbacks() {
   g_emu_callbacks = emu_callbacks{
       .call_from_main_thread =
@@ -2373,7 +2397,7 @@ static void setupCallbacks() {
 
             g_mainThreadDispatcher.post(std::move(cb));
           },
-      .on_run = [](auto...) {},
+      .on_run = [](auto...) { remote_play_on_run(); },
       .on_pause = [](auto...) {},
       .on_resume = [](auto...) {},
       .on_stop = [](auto...) {},
@@ -4217,6 +4241,19 @@ extern "C" int _rpcsx_boot(std::string_view path_) {
     }
   }
 
+  // An RSX capture (.rrc, as written by the in-game Capture button to config/captures) replays
+  // its one frame in a loop instead of booting a game: the way to look at a graphics bug again
+  // without the game, or on another machine. Started like any file, e.g. a VIEW intent with its
+  // file:// path:
+  //   adb shell am start -a android.intent.action.VIEW -d file://<path>.rrc.gz
+  //       -n com.armsx3/com.armsx2.BootSplashActivity
+  if (const std::string lower = fmt::to_lower(path);
+      lower.ends_with(".rrc") || lower.ends_with(".rrc.gz") || lower.ends_with(".rrc.zst")) {
+    rpcsx_android.notice("boot: '%s' is an RSX capture, replaying it", path);
+    return static_cast<int>(Emu.BootRsxCapture(path) ? game_boot_result::no_errors
+                                                     : game_boot_result::generic_error);
+  }
+
   return static_cast<int>(Emu.BootGame(path, "", false, cfg_mode::custom));
 }
 
@@ -4228,6 +4265,11 @@ extern "C" void _rpcsx_kill() {
   stop_session();
 }
 extern "C" void _rpcsx_resume() { Emu.Resume(); }
+
+// From the activity's onStart/onStop. See Emu/android_app_state.h for who reads it.
+extern "C" void _rpcsx_setAppBackgrounded(bool backgrounded) {
+  g_android_app_backgrounded = backgrounded;
+}
 
 // The counterpart to _rpcsx_resume, which had none. Rpcs3Bridge.pause() set a bool and returned,
 // on the belief that "RPCS3 has no explicit pause entry point" -- but Emu.Pause() is right here,
@@ -4288,6 +4330,16 @@ extern "C" void _rpcsx_openHomeMenu() { open_home_menu_async(); }
 // at the next frame boundary, records that frame's command stream, writes it under
 // config/captures/ and pauses the emulator.
 extern "C" void _rpcsx_captureFrame() { g_user_asked_for_frame_capture = true; }
+
+// Arm a frame dump of the next frame (rsx_frame_dump.h): 1 = final image, 2 = every render pass.
+// False when the renderer cannot do it, which the menu says rather than arming nothing.
+extern "C" bool _rpcsx_dumpFrame(int mode) {
+  if (mode != 1 && mode != 2) {
+    return false;
+  }
+
+  return rsx::frame_dump::request(static_cast<rsx::frame_dump::dump_mode>(mode));
+}
 
 extern "C" std::string _rpcsx_getTitleId() { return Emu.GetTitleID(); }
 
@@ -5237,7 +5289,34 @@ extern "C" bool _rpcsx_patchSetEnabled(std::string_view hash,
   entry.version = h->second.version;
 
   auto &info = entry.patch_info_map[std::string(description)];
+
+  // The patch's details come from the database, but every serial's switch comes from the config
+  // read just above.
+  //
+  // The cached database carries the enabled state the config had when the cache was built, and
+  // it is rebuilt only when a patch FILE changes, never when the config does. Copying it over the
+  // entry wholesale put every other serial back the way it was at that moment, so switching one
+  // patch on for several serials in a row kept only the last. Ps3PatchRepo.BUNDLED does exactly
+  // that: on a clean install GTA IV's collision fix came out on for NPUB30702 alone, and the
+  // Complete Edition (BLUS30682) would have run Approximate without it.
+  const patch_engine::patch_titles current = std::move(info.titles);
   info = p->second;
+
+  for (auto &[title, serials] : info.titles)
+    for (auto &[ser, versions] : serials)
+      for (auto &[ver, values] : versions) {
+        // Absent from the config means off.
+        values.enabled = false;
+
+        if (const auto t = current.find(title); t != current.end())
+          if (const auto s = t->second.find(ser); s != t->second.end())
+            if (const auto v = s->second.find(ver); v != s->second.end()) {
+              values.enabled = v->second.enabled;
+
+              if (!v->second.config_values.empty())
+                values.config_values = v->second.config_values;
+            }
+      }
 
   // patch_key::all is spelled "All"; the lowercase literal this used to compare
   // against never matched, so a wildcard patch toggled from a game's own list
@@ -5406,13 +5485,6 @@ extern "C" void _rpcsx_setPadSensor(int port, int x, int y, int z, int g) {
   pad->m_sensors[3].m_value = clamp10(g);
 }
 
-// What the game is currently asking the rumble motors to do, packed as
-// (large << 8) | small, both 0..255.
-//
-// Polled rather than pushed: the guest writes these through cellPadSetActDirect
-// whenever it likes, and there is no notification to hook. The caller reads it on a
-// timer and drives the phone's vibrator. Returns 0 when nothing is running, so a
-// caller that keeps polling after the game stops simply sees silence.
 // Device temperatures, pushed from the app layer -- see the note in overlay_perf_metrics.h for
 // why discovery lives there and not here. Values are degrees Celsius, or the 'none' sentinel.
 extern "C" void _rpcsx_setThermals(float cpu, float gpu, float battery, bool show) {
@@ -5488,6 +5560,18 @@ extern "C" void _rpcsx_setPadDeviceClasses(const int *classes, int count) {
   pad::reset(Emu.GetTitleID());
 }
 
+// The motor speeds for what the game is currently asking the rumble motors to do,
+// packed as (large << 8) | small, both 0..255.
+//
+// The request goes through the player's pad config, the same conversion a physical pad
+// gets before its motors are driven. That includes the vibration threshold: a DS3
+// ignores low large-motor values, so a game can leave the motor at one to keep it still.
+//
+// Polled rather than pushed: the guest writes the motors through cellPadSetActDirect
+// whenever it likes, and there is no notification to hook. Returns 0 when nothing is
+// running, so a caller that keeps polling after the game stops simply sees silence.
+//
+// Fix contributed by mariobob (PR #200)
 extern "C" int _rpcsx_getPadRumble(int port) {
   std::lock_guard lock(g_virtual_pad_mutex);
 
@@ -5501,8 +5585,13 @@ extern "C" int _rpcsx_getPadRumble(int port) {
     return 0;
   }
 
-  const int large = pad->m_vibrate_motors[0].value;
-  const int small = pad->m_vibrate_motors[1].value;
+  if (static_cast<usz>(port) >= g_cfg_input.player.size() || !g_cfg_input.player[port]) {
+    return 0;
+  }
+
+  const cfg_pad &config = g_cfg_input.player[port]->config;
+  const int large = config.get_large_motor_speed(pad->m_vibrate_motors);
+  const int small = config.get_small_motor_speed(pad->m_vibrate_motors);
   return (large << 8) | small;
 }
 

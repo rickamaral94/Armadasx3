@@ -338,7 +338,8 @@ object Rpcs3Bridge {
         try {
             while (!stopRequested) {
                 if (RPCSX.getState() != EmulatorState.Stopped) {
-                    Thread.sleep(POLL_INTERVAL_MS)
+                    // Once a second out of sight: ten checks a second ran on in a locked device.
+                    Thread.sleep(if (appBackgrounded) 1000L else POLL_INTERVAL_MS)
                     continue
                 }
 
@@ -446,12 +447,31 @@ object Rpcs3Bridge {
         // pause() did not, so the pair was asymmetric and "Pause" was decorative.
         paused = true
         RPCSX.instance.pause()
+        // Motion goes off with the game. A paused game reads none, and the phone's accelerometer
+        // and gyro otherwise kept streaming fifty samples a second each into an app that had been
+        // put in the background or locked (#196).
+        sixaxis?.stop()
     }
 
     @JvmStatic
     fun resume() {
         paused = false
         RPCSX.instance.resume()
+        sixaxis?.start()
+    }
+
+    @Volatile
+    private var appBackgrounded = false
+
+    /**
+     * The app left the screen (true) or came back (false), from the activity's onStop/onStart.
+     * While out of sight the core's paused-game threads poll less, and so does boot()'s wait for
+     * the session to end (#196).
+     */
+    @JvmStatic
+    fun setAppBackgrounded(backgrounded: Boolean) {
+        appBackgrounded = backgrounded
+        runCatching { RPCSX.instance.setAppBackgrounded(backgrounded) }
     }
 
     /** Set by shutdown() to release boot()'s wait; see the loop there. */
@@ -1073,9 +1093,15 @@ object Rpcs3Bridge {
          *  JNI call per input event for values that never change. */
         val pressureSent = IntArray(PRESSURE_SLOTS)
 
-        /** Opposing directions cancel; 128 is centre, matching CELL_PAD. */
-        private fun axis(pos: Int, neg: Int) =
-            (128f + (dir[pos] - dir[neg]) * 127f).toInt().coerceIn(0, 255)
+        /** Opposing directions cancel; 128 is centre, matching CELL_PAD. Each side scales to its
+         *  own end, so a full push reads 0 up/left and 255 down/right, as a real DualShock 3 sends
+         *  and RPCS3's ConvertAxis gives. One 127 scale for both sides stopped full up and full
+         *  left at 1, one step short (ARMSX3 #198: full up / full left walked, the rest ran).
+         *  Rounded, so a push within half a step of either end reaches it. */
+        private fun axis(pos: Int, neg: Int): Int {
+            val v = dir[pos] - dir[neg]
+            return (128.5f + v * (if (v < 0f) 128f else 127f)).toInt().coerceIn(0, 255)
+        }
 
         fun leftX() = axis(1, 3)
         fun leftY() = axis(2, 0)
@@ -1349,6 +1375,13 @@ object Rpcs3Bridge {
         runCatching { RPCSX.instance.captureFrame() }
     }
 
+    /** Arm a frame dump: the next frame with real drawing is saved as PNGs to config/captures/.
+     *  Like a capture, it waits for a frame to be rendered, so close the pause menu first. False when
+     *  the active renderer cannot do it. */
+    @JvmStatic
+    fun dumpFrame(mode: Int): Boolean =
+        runCatching { RPCSX.instance.dumpFrame(mode) }.getOrDefault(false)
+
     @JvmStatic
     fun rpcnDeleteTrophies(): String =
         runCatching { RPCSX.instance.rpcnDeleteTrophies() }
@@ -1426,9 +1459,10 @@ object Rpcs3Bridge {
     @JvmStatic
     fun setStick(port: Int, left: Boolean, x: Int, y: Int) {
         val pad = pads.getOrNull(port) ?: return
-        // Absolute axis -> the two opposing deflections it implies.
+        // Absolute axis -> the two opposing deflections it implies (inverse of axis()).
         fun split(v: Int): Pair<Float, Float> {
-            val n = ((v.coerceIn(0, 255) - 128) / 127f).coerceIn(-1f, 1f)
+            val d = v.coerceIn(0, 255) - 128
+            val n = if (d < 0) d / 128f else d / 127f
             return if (n >= 0f) n to 0f else 0f to -n
         }
         val (xPos, xNeg) = split(x)
@@ -1758,8 +1792,10 @@ object Rpcs3Bridge {
      * mid-session. Callers only ask when the motor state changes, so enumerating devices is not a
      * per-frame cost.
      */
-    private fun vibrator(port: Int = 0): RumbleTarget? {
-        val dev = deviceForPort(port)
+    private fun vibrator(port: Int = 0): RumbleTarget? = vibratorFor(deviceForPort(port), handheld = port == 0)
+
+    /** [vibrator] for a given controller. [handheld]: this device's own motor may stand in. */
+    private fun vibratorFor(dev: android.view.InputDevice?, handheld: Boolean): RumbleTarget? {
         val mode = PadRouter.rumbleMode(dev?.descriptor)
         if (mode == PadRouter.RumbleMode.OFF) return null
 
@@ -1777,8 +1813,56 @@ object Rpcs3Bridge {
         // motor would just be the wrong device again.
         val wantDevice = mode == PadRouter.RumbleMode.DEVICE || NativeApp.sPhoneRumbleEnabled
         return deviceVibrator()
-            .takeIf { port == 0 && wantDevice && it?.hasVibrator() == true }
+            .takeIf { handheld && wantDevice && it?.hasVibrator() == true }
             ?.let { RumbleTarget("this device", listOf(it)) }
+    }
+
+    // ---- Remote play -----------------------------------------------------
+    //
+    // A friend playing as player 2 through remote play feels player 2's rumble on their own
+    // device: the host reads it here and sends it, and the friend's side plays it here.
+
+    /**
+     * Host: what the game has player [port]'s motors doing, packed (large << 8) | small, or 0 while
+     * paused, as the local motors are. This device's own vibration settings do not apply: the
+     * friend's side applies its own.
+     */
+    @JvmStatic
+    fun remoteRumble(port: Int): Int =
+        if (paused) 0 else runCatching { RPCSX.instance.getPadRumble(port) }.getOrDefault(0)
+
+    /** Host: whether the game is paused, for the friend's screen to say so. */
+    @JvmStatic
+    fun isPaused(): Boolean = paused
+
+    private var remoteActive: RumbleTarget? = null
+    private var remoteAnnounced: String? = null
+
+    /**
+     * Friend's side: runs this device's motors as the host asks, wherever local play would send
+     * player 1's rumble, with this device's vibration settings: the controller in use ([deviceId],
+     * -1 when none has been used yet) if it has motors, else the handheld's own. 0, 0 stops them.
+     * Main thread.
+     */
+    @JvmStatic
+    fun playRemoteRumble(deviceId: Int, large: Int, small: Int) {
+        val vib = if (rumbleEnabled && (large > 0 || small > 0)) {
+            runCatching {
+                val dev = if (deviceId >= 0) android.view.InputDevice.getDevice(deviceId) else deviceForPort(0)
+                vibratorFor(dev, handheld = true)
+            }.getOrNull()
+        } else {
+            null
+        }
+        if (vib != null && remoteAnnounced != vib.label) {
+            remoteAnnounced = vib.label
+            logRumble("remote play -> ${vib.label}")
+        }
+        remoteActive?.takeIf { !it.sameAs(vib) }?.let { runCatching { it.cancel() } }
+        remoteActive = null
+        if (vib == null) return
+        runCatching { vib.play(large, small) }
+        remoteActive = vib
     }
 
     @JvmStatic
@@ -1859,7 +1943,9 @@ object Rpcs3Bridge {
                     lastSmall[port] = wantSmall
                 }
 
-                try { Thread.sleep(30) } catch (_: InterruptedException) { break }
+                // Slower while paused, when the motors are already off and the only news is the
+                // resume: 33 polls a second otherwise ran on in a backgrounded or locked app.
+                try { Thread.sleep(if (paused) 250 else 30) } catch (_: InterruptedException) { break }
             }
             runCatching { active.forEach { it?.cancel() } }
         }.apply { isDaemon = true; name = "rumble-pump"; start() }
@@ -1924,6 +2010,7 @@ object Rpcs3Bridge {
 
     // ---- SIXAXIS motion ------------------------------------------------
 
+    @Volatile
     private var sixaxis: com.armsx2.input.Sixaxis? = null
 
     /**

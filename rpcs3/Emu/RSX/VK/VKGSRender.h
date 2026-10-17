@@ -21,6 +21,8 @@
 
 #include "Emu/RSX/GSRender.h"
 #include "Emu/RSX/Host/RSXDMAWriter.h"
+#include "Emu/RSX/rsx_frame_dump.h"
+#include "Emu/RSX/remote_capture.h"
 #include <functional>
 #include <initializer_list>
 
@@ -259,6 +261,44 @@ private:
 
 	std::unique_ptr<vk::image> m_overlay_recording_img;
 
+	// ARMSX3 remote play (android/src/remote_play.cpp, Emu/RSX/remote_capture.h). Each captured frame is
+	// drawn on the GPU into a slot and marked done by a GPU-written sequence number; the app's video
+	// thread watches those numbers and takes finished frames itself, so the RSX thread records a few
+	// commands per frame and never touches the pixels. A slot is one of:
+	//  - an AHardwareBuffer the frame is copied into as RGBA, which the app hands to the video encoder
+	//    as a GL texture: nothing passes through the CPU (needs VK_ANDROID_external_memory_android_
+	//    hardware_buffer, and the app asking for it);
+	//  - otherwise a mapped buffer holding the frame as the encoder's NV12, drawn by two small fragment
+	//    passes (Y and UV), which the app copies out once.
+	// A slot's shareable buffer and its Vulkan image. Destroyed through the resource manager, after
+	// the frames that used it have completed.
+	struct remote_capture_hardware
+	{
+		VkDevice device = VK_NULL_HANDLE;
+		AHardwareBuffer* buffer = nullptr;
+		VkImage image = VK_NULL_HANDLE;
+		VkDeviceMemory memory = VK_NULL_HANDLE;
+		u32 width = 0;
+		u32 height = 0;
+
+		remote_capture_hardware() = default;
+		remote_capture_hardware(const remote_capture_hardware&) = delete;
+		~remote_capture_hardware();
+	};
+	remote_capture::ring m_remote_capture_ring;
+	std::array<std::unique_ptr<vk::buffer>, 4> m_remote_capture_buffers;
+	std::array<std::unique_ptr<remote_capture_hardware>, 4> m_remote_capture_hardware;
+	std::unique_ptr<vk::image> m_remote_capture_y;
+	std::unique_ptr<vk::image> m_remote_capture_uv;
+	std::unique_ptr<vk::image> m_remote_capture_rgba;
+	std::unique_ptr<vk::buffer> m_remote_capture_marker;
+	u32 m_remote_capture_seq = 0;
+	bool m_remote_capture_published = false;
+	bool m_remote_capture_hardware_failed = false;
+	void remote_capture_record(vk::viewable_image* src, u32 width, u32 height, u32 max_size);
+	std::unique_ptr<remote_capture_hardware> remote_capture_create_hardware(u32 width, u32 height);
+	void remote_capture_release(bool device_idle);
+
 	//Vertex layout
 	rsx::vertex_input_layout m_vertex_layout;
 
@@ -278,6 +318,46 @@ public:
 
 private:
 	void prepare_rtts(rsx::framebuffer_creation_context context);
+
+	// Frame dumps (rsx_frame_dump.h, VKFrameDump.cpp). Inactive and free unless one was requested.
+	struct frame_dump_state
+	{
+		rsx::frame_dump::dump_mode mode = rsx::frame_dump::dump_mode::none;
+		std::string dir;          // this dump's folder, with a trailing slash
+		std::string index;        // frame.txt, written when the dump ends
+		std::string fb_desc;      // the render target set currently bound
+		std::string stop_reason;  // set when a limit was reached; nothing more is written
+		u64 bytes = 0;            // PNG bytes written
+		u32 images = 0;           // images written
+		u32 draws = 0;            // draws since the last save
+		u32 frame_draws = 0;      // draws in the frame being dumped
+		bool armed = false;       // asked for, waiting for the game's next flip to start the frame
+		bool active = false;      // inside the frame being dumped
+		bool take_final = false;  // save the image this flip shows
+		bool take_screen = false; // read the screen buffer back on this flip
+	} m_frame_dump;
+
+	u64 m_frame_dump_flips = 0;   // flips since boot, for ARMSX3_DUMP_PASSES
+
+	// A copy recorded into the command stream, written out as a PNG once the GPU has done it.
+	struct frame_dump_copy
+	{
+		std::unique_ptr<vk::buffer> buf;
+		std::string name, why, desc;
+		u32 draws = 0;            // draws into it since the last save; shown for passes only
+		u32 width = 0, height = 0, bpp = 0;
+		VkFormat format = VK_FORMAT_UNDEFINED;
+		u64 size = 0;
+	};
+	std::vector<frame_dump_copy> m_frame_dump_pending;
+
+	void frame_dump_on_flip(const rsx::display_flip_info_t& info);
+	void frame_dump_capture(const char* why);
+	void frame_dump_save(const std::vector<vk::image*>& images, const char* why, const std::string& desc);
+	void frame_dump_record(const std::vector<vk::image*>& images, const char* tag, const char* why, const std::string& desc);
+	void frame_dump_write_pending();
+	bool frame_dump_write(const frame_dump_copy& copy, const void* data);
+	void frame_dump_finish();
 
 	void close_and_submit_command_buffer(
 		vk::fence* fence = nullptr,

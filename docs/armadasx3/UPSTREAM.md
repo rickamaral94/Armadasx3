@@ -9,7 +9,7 @@ git remote add rpcs3  https://github.com/RPCS3/rpcs3     # correções pontuais
 
 | Remoto | Papel | Último ponto incorporado |
 |---|---|---|
-| `armsx3` (`master`) | Base direta | `6dfb2967` (1.1, versionCode 86) |
+| `armsx3` (`master`) | Base direta | `23e6daab` (1.2, versionCode 90) |
 | `rpcs3` (`master`) | Correções que o ARMSX3 ainda não trouxe | `26098fb42` (2026-10-10), merge direto |
 
 ## Rotina de sincronização
@@ -97,3 +97,4 @@ carregar.**
 | 2026-10-10 | — | `armsx3` `f3bdcd5c` | — | Importação inicial com histórico completo |
 | 2026-10-11 | `armsx3` `f3bdcd5c` | `armsx3` `6dfb2967` (1.1) | 0 | 10 commits |
 | 2026-10-11 | merge-base `961c86fb` | `rpcs3` `26098fb42` | 59 arquivos / 144 blocos | 224 commits novos (75 já estavam no ARMSX3); divergências acima |
+| 2026-10-17 | `armsx3` `6dfb2967` | `armsx3` `23e6daab` (1.2) | 10 arquivos | 176 commits: Remote play (WebRTC via Maven), dumps de frame, cursor por hardware, velocidade de leitura HDD/BD, primitive restart no Adreno 830, entrada e rumble, correções de segurança/estabilidade do RPCS3. Resolução: shim `glNamedFramebufferParameteri` do ARMSX3 no lugar do nosso; `nv4097.cpp` com a contagem do ARMSX3 (o nosso lado escrevia as constantes duas vezes) e a checagem de limite do RPCS3; arquivos do Visual Studio e da UI Qt mantidos como estavam |

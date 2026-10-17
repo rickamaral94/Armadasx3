@@ -213,8 +213,13 @@ PPU-ed460e668a491f5e39f6547f3a24c2f20e2cb39b:
     Patch:
       - [ be32, 0x005f7128, 0x4082fff4 ]
 
+# Into the Nexus v01.01 is named apart from the Artemis collection's "Freeze fix" for this same
+# executable. That one is the identical change (Juhn, 0x005f8ca8) but lists NPUA80908 alone at
+# Patch Version 1.2, and the loader keeps only the higher version of one hash and name, so with
+# Artemis installed it replaced this entry and the other four versions ran with no fix at all.
+# For NPUA80908 both can now apply; they write the same word.
 PPU-fadb0af6fb7bd0113e88fb9af3eb78fe3be05d08:
-  "Freeze fix":
+  "Freeze fix (all regions)":
     Games:
       "Ratchet & Clank: Into the Nexus":
         BCUS99245: [ 01.01 ]
@@ -626,3 +631,52 @@ PPU-0e747cbf4d807d363b085d983fff749c2c9cbdee:
       - [ be32, 0x00000000, 0x3bc00000 ] # li r30,0
       - [ jump, 0x00000000, 0x006c77f8 ] # search again
       - [ be32, 0x00000000, 0x3be00000 ] # null: li r31,0, the instruction this replaced; then back to 0x6c7864
+
+# GRAND THEFT AUTO IV, BLUS30682 v01.02 (Complete Edition) and the same executable sold as
+# BLUS30127 / NPUB30702 v01.08 -- ours. With SPU XFloat Accuracy on Approximate, Niko falls
+# through floors, roads and cars; RPCS3's database pins the game to Accurate for that, which
+# costs a lot of SPU time. With this patch on, ConfigDatabase.LOCAL_OVERRIDES puts these three
+# serials back on Approximate.
+#
+# The collision job SpuCollide_psn_final.task.elf starts its searches with "max distance"
+# set to 0x7FFFFFFF, the SPU's largest float (~6.8e38; the SPU has no NaN or infinity). On
+# Approximate that bit pattern is a NaN, so the search's first "still converging?" test,
+# (prev - dist) > prev * 1e-6 with prev = max (LS 0xea28..0xea54), comes out false and it
+# stops before it finds the ground. 0x7F7FFFFF (FLT_MAX) gives every test in the job the
+# same answer and is a number on both. All 14 places build the value with ilhu 0x7fff +
+# iohl 0xffff; this changes the ilhu half. None is a bit mask: every AND they meet is with
+# the xyz mask at LS 0x1d890. numeric_limits<float>::max() in .data (LS 0x1dc18) must NOT be
+# changed: lowest() is compared bit for bit against 0xffffffff "unset" fill.
+#
+# Harmless on Accurate, where both values are finite. On the Complete Edition the two
+# Episodes from Liberty City run inside this same executable as add-on content (ELC/DLC1,
+# ELC/DLC2): a Ballad of Gay Tony boot loaded the same SpuCollide and took all 14 lines. The
+# standalone Episodes from Liberty City disc is a different executable and is not covered.
+#
+# Offsets are LS addresses: apply_modification subtracts p_vaddr (0x3000).
+# Ps3PatchRepo.BUNDLED must list this, or it is imported but never enabled.
+SPU-d0a1508208613e2184fbd64906d34d5f07890033:
+  "ARMSX3 Approximate collision fix":
+    Games:
+      "Grand Theft Auto IV":
+        BLUS30682: [ All ]
+        BLUS30127: [ All ]
+        NPUB30702: [ All ]
+    Author: "jpolo1224"
+    Notes: "Lets the game run with SPU XFloat Accuracy on Approximate without falling through the world."
+    Patch Version: 1.0
+    Patch:
+      - [ be32, 0x0c4f4, 0x413fbfd4 ] # ilhu r84,0x7f7f (was 0x413fffd4): FLT_MAX instead of SPU max
+      - [ be32, 0x0e3b0, 0x413fbf90 ] # ilhu r16,0x7f7f (was 0x413fff90): FLT_MAX instead of SPU max
+      - [ be32, 0x0eca0, 0x413fbfa3 ] # ilhu r35,0x7f7f (was 0x413fffa3): FLT_MAX instead of SPU max
+      - [ be32, 0x0f630, 0x413fbf82 ] # ilhu r2,0x7f7f (was 0x413fff82): FLT_MAX instead of SPU max
+      - [ be32, 0x0fa38, 0x413fbf91 ] # ilhu r17,0x7f7f (was 0x413fff91): FLT_MAX instead of SPU max
+      - [ be32, 0x10e30, 0x413fbf9b ] # ilhu r27,0x7f7f (was 0x413fff9b): FLT_MAX instead of SPU max
+      - [ be32, 0x11470, 0x413fbfde ] # ilhu r94,0x7f7f (was 0x413fffde): FLT_MAX instead of SPU max
+      - [ be32, 0x11508, 0x413fbfc4 ] # ilhu r68,0x7f7f (was 0x413fffc4): FLT_MAX instead of SPU max
+      - [ be32, 0x154b0, 0x413fbfbc ] # ilhu r60,0x7f7f (was 0x413fffbc): FLT_MAX instead of SPU max
+      - [ be32, 0x15528, 0x413fbfb2 ] # ilhu r50,0x7f7f (was 0x413fffb2): FLT_MAX instead of SPU max
+      - [ be32, 0x157a0, 0x413fbfcb ] # ilhu r75,0x7f7f (was 0x413fffcb): FLT_MAX instead of SPU max
+      - [ be32, 0x158d8, 0x413fbfa0 ] # ilhu r32,0x7f7f (was 0x413fffa0): FLT_MAX instead of SPU max
+      - [ be32, 0x17098, 0x413fbfbd ] # ilhu r61,0x7f7f (was 0x413fffbd): FLT_MAX instead of SPU max
+      - [ be32, 0x175f8, 0x413fbfcf ] # ilhu r79,0x7f7f (was 0x413fffcf): FLT_MAX instead of SPU max

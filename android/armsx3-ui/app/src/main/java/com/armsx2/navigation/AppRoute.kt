@@ -36,7 +36,12 @@ sealed interface AppRoute {
     data object Language : AppRoute
     data object News : AppRoute
     data object Friends : AppRoute
+    // Joining a friend's game on the same Wi-Fi. Hosting lives in the in-game menu's Friends
+    // overlay instead, since only a running game can be hosted.
+    data object RemotePlay : AppRoute
     data object About : AppRoute
+    // About > Open-source licenses. Back returns to About.
+    data object Licenses : AppRoute
 }
 
 enum class SettingsCategory {
@@ -84,6 +89,10 @@ object UiNavigator {
             }
             AppRoute.About -> {
                 route.value = AppRoute.Settings(SettingsCategory.General)
+                return true
+            }
+            AppRoute.Licenses -> {
+                route.value = AppRoute.About
                 return true
             }
             // A settings screen opened from another screen goes back to that screen. Reached
